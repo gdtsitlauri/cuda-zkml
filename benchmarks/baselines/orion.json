@@ -1,0 +1,20 @@
+{
+  "system": "Orion",
+  "model": "Archived Orion filtered test (relu_i8)",
+  "status": "measured",
+  "avg_inference_ms": null,
+  "avg_setup_ms": null,
+  "avg_prove_ms": 456930.0,
+  "avg_verify_ms": null,
+  "avg_total_s": 456.93,
+  "proof_size_bytes": null,
+  "hardware": "CPU",
+  "note": "Measured in WSL Ubuntu from `scarb test -- -f relu_i8` on Orion v0.2.5; the archived Orion test workflow does not expose separate setup or verify timings.",
+  "stage_ms": {
+    "filtered_test_ms": 456930.0
+  },
+  "gas_usage_estimates": [
+    128560
+  ],
+  "test_filter": "relu_i8"
+}

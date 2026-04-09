@@ -1,0 +1,56 @@
+{
+  "status": "verified",
+  "contract_path": "c:\\Users\\TOM\\Desktop\\gpu\\cuda-zkml\\contracts\\Verifier.sol",
+  "solc_binary": "c:\\Users\\TOM\\Desktop\\gpu\\cuda-zkml\\.solcx\\solc-v0.8.20\\solc.exe",
+  "artifacts": {
+    "vk": "c:\\Users\\TOM\\Desktop\\gpu\\cuda-zkml\\benchmarks\\results\\onchain_demo\\vk.bin",
+    "proof": "c:\\Users\\TOM\\Desktop\\gpu\\cuda-zkml\\benchmarks\\results\\onchain_demo\\proof.bin",
+    "public_inputs": "c:\\Users\\TOM\\Desktop\\gpu\\cuda-zkml\\benchmarks\\results\\onchain_demo\\public_inputs.bin"
+  },
+  "curve_compatibility": {
+    "proof": {
+      "A": true,
+      "B": true,
+      "C": true
+    },
+    "vk": {
+      "alpha": true,
+      "beta": true,
+      "gamma": true,
+      "delta": true,
+      "ic": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "ic_all": true
+    },
+    "all_points_evm_compatible": true
+  },
+  "steps": {
+    "compiled": true,
+    "deployed": true,
+    "vk_uploaded": true,
+    "verify_called": true
+  },
+  "solidity_export_dir": "c:\\Users\\TOM\\Desktop\\gpu\\cuda-zkml\\benchmarks\\results\\onchain_demo\\solidity_artifacts",
+  "solidity_bundle_preview": {
+    "public_inputs": 10,
+    "ic_points": 11
+  },
+  "deploy_ms": 49.19589999917662,
+  "deploy_gas_used": 2115563,
+  "contract_address": "0xF2E246BB76DF876Cef8b38ae84130F4F55De395b",
+  "set_vk_ms": 216.56960000109393,
+  "set_vk_gas_used": 894575,
+  "verify_call_ms": 805.0903999974253,
+  "evm_valid": true
+}

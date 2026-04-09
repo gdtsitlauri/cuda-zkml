@@ -1,0 +1,107 @@
+{
+  "generated_at": "2026-04-09T13:31:08Z",
+  "host": "TOM-72",
+  "runs": 1,
+  "results": [
+    {
+      "system": "CUDA-zkML (GTX 1650)",
+      "model": "MNIST MLP (784\u2192128\u219210)",
+      "status": "measured",
+      "avg_inference_ms": 53.66,
+      "avg_setup_ms": 1381.3,
+      "avg_prove_ms": 3982.29,
+      "avg_verify_ms": 225.18,
+      "avg_total_s": 6.279794692993164,
+      "proof_size_bytes": 256,
+      "n_runs": 1,
+      "hardware": "NVIDIA GTX 1650 (4GB, SM 7.5)",
+      "note": "Measured from zkml-prove --demo on the local machine"
+    },
+    {
+      "system": "CUDA-zkML Tiny Transformer (GTX 1650)",
+      "model": "Tiny transformer (4 tokens \u00d7 8 hidden, single-head attention)",
+      "status": "measured",
+      "avg_inference_ms": 44.84,
+      "avg_setup_ms": 174.79,
+      "avg_prove_ms": 207.14,
+      "avg_verify_ms": 263.35,
+      "avg_total_s": 1.077164888381958,
+      "proof_size_bytes": 256,
+      "n_runs": 1,
+      "hardware": "NVIDIA GTX 1650 (4GB, SM 7.5)",
+      "note": "Measured from zkml-prove on the tiny transformer attention path"
+    },
+    {
+      "system": "CPU Float32 Inference",
+      "model": "MNIST MLP (784\u2192128\u219210)",
+      "status": "measured",
+      "avg_inference_ms": 0.08573333373836552,
+      "avg_setup_ms": null,
+      "avg_prove_ms": null,
+      "avg_verify_ms": null,
+      "avg_total_s": 8.573333373836552e-05,
+      "proof_size_bytes": 0,
+      "n_runs": 3,
+      "hardware": "AMD64 Family 25 Model 80 Stepping 0, AuthenticAMD",
+      "note": "Reference float32 forward pass only"
+    },
+    {
+      "system": "CPU Quantized Field Inference",
+      "model": "MNIST MLP (784\u2192128\u219210)",
+      "status": "measured",
+      "avg_inference_ms": 1.0896666669092763,
+      "avg_setup_ms": null,
+      "avg_prove_ms": null,
+      "avg_verify_ms": null,
+      "avg_total_s": 0.0010896666669092763,
+      "proof_size_bytes": 0,
+      "n_runs": 3,
+      "hardware": "AMD64 Family 25 Model 80 Stepping 0, AuthenticAMD",
+      "note": "Inference-only CPU baseline; float/quantized top-1 agreement 100.0%"
+    },
+    {
+      "system": "EZKL",
+      "model": "Tiny reference MLP (4\u21924\u21922)",
+      "status": "measured",
+      "avg_inference_ms": 5.072011000038401,
+      "avg_setup_ms": 1547.8525830001217,
+      "avg_prove_ms": 1812.7380619998803,
+      "avg_verify_ms": 13.261192000072697,
+      "avg_total_s": 7.113843223999993,
+      "proof_size_bytes": 18209,
+      "hardware": "CPU",
+      "note": "Live local EZKL run in WSL Ubuntu on a tiny reference ONNX model",
+      "stage_ms": {
+        "input_ms": 1.052256999855672,
+        "settings_ms": 6.260117000010723,
+        "calibrate_ms": 109.34265700007018,
+        "compile_ms": 0.7292580000921589,
+        "witness_ms": 5.072011000038401,
+        "srs_ms": 3553.8093899999694,
+        "setup_ms": 1547.8525830001217,
+        "prove_ms": 1812.7380619998803,
+        "verify_ms": 13.261192000072697
+      }
+    },
+    {
+      "system": "Orion",
+      "model": "Archived Orion filtered test (relu_i8)",
+      "status": "measured",
+      "avg_inference_ms": null,
+      "avg_setup_ms": null,
+      "avg_prove_ms": 456930.0,
+      "avg_verify_ms": null,
+      "avg_total_s": 456.93,
+      "proof_size_bytes": null,
+      "hardware": "CPU",
+      "note": "Measured in WSL Ubuntu from `scarb test -- -f relu_i8` on Orion v0.2.5; the archived Orion test workflow does not expose separate setup or verify timings.",
+      "stage_ms": {
+        "filtered_test_ms": 456930.0
+      },
+      "gas_usage_estimates": [
+        128560
+      ],
+      "test_filter": "relu_i8"
+    }
+  ]
+}

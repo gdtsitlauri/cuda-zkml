@@ -1,0 +1,24 @@
+{
+  "system": "EZKL",
+  "model": "Tiny reference MLP (4→4→2)",
+  "status": "measured",
+  "avg_inference_ms": 5.072011000038401,
+  "avg_setup_ms": 1547.8525830001217,
+  "avg_prove_ms": 1812.7380619998803,
+  "avg_verify_ms": 13.261192000072697,
+  "avg_total_s": 7.113843223999993,
+  "proof_size_bytes": 18209,
+  "hardware": "CPU",
+  "note": "Live local EZKL run in WSL Ubuntu on a tiny reference ONNX model",
+  "stage_ms": {
+    "input_ms": 1.052256999855672,
+    "settings_ms": 6.260117000010723,
+    "calibrate_ms": 109.34265700007018,
+    "compile_ms": 0.7292580000921589,
+    "witness_ms": 5.072011000038401,
+    "srs_ms": 3553.8093899999694,
+    "setup_ms": 1547.8525830001217,
+    "prove_ms": 1812.7380619998803,
+    "verify_ms": 13.261192000072697
+  }
+}

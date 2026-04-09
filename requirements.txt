@@ -1,0 +1,10 @@
+numpy>=1.21.0
+pybind11>=2.10.0
+onnx>=1.13.0
+torch>=2.0.0
+web3>=7.0.0
+eth-tester>=0.13.0b1
+py-solc-x>=2.0.0
+py-ecc>=7.0.0
+py-evm>=0.12.0b3
+ezkl>=23.0.0

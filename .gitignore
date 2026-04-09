@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+.venv-*/
+venv/
+env/
+
+# Editors / IDEs
+.vscode/
+.idea/
+.vs/
+
+# Build directories
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+
+# Visual Studio / MSVC / CUDA build outputs
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.dir/
+x64/
+Debug/
+Release/
+*.tlog
+*.recipe
+*.obj
+*.lib
+*.exe
+*.exp
+*.ilk
+*.pdb
+*.idb
+*.cache
+*.deps
+*.lastbuildstate
+
+# Generated logs
+*.log
+
+# Tool caches
+.solcx/
+.zkml_tmp/
+.zkml_tmp*/
+.tmp*/
+tmp*/
+zkml_*/
+ezkl_probe_*/
+
+# Generated benchmark / local EVM artifacts
+benchmarks/results/onchain_demo/
+
+# WSL / local package manager caches
+.cache/
+.local/
+

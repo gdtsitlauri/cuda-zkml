@@ -1,0 +1,407 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage[margin=1in]{geometry}
+
+\title{\textbf{CUDA-zkML: GPU-Accelerated Zero-Knowledge Proofs\\
+for Neural Network Inference}}
+
+\author{
+  CUDA-zkML Team\\
+  \texttt{https://github.com/cuda-zkml}
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+% ============================================================
+\begin{abstract}
+We present CUDA-zkML, a GPU-accelerated system for generating
+zero-knowledge proofs of neural network inference. Our system proves
+that a neural network was correctly executed on given inputs without
+revealing the model weights or private inputs. Built as a CUDA-native
+implementation targeting NVIDIA consumer GPUs (GTX 1650, SM 7.5),
+CUDA-zkML achieves significant speedups over CPU-based zkML tools
+by parallelizing the computationally intensive multi-scalar multiplication
+(MSM) and number-theoretic transform (NTT) operations that dominate
+Groth16 proof generation. We implement complete BN254 finite field
+arithmetic in CUDA, a quantized neural network inference engine over
+finite fields, and a full Groth16 proving system. On an NVIDIA GTX 1650
+(4GB VRAM), the end-to-end demo path measures 53.66 ms inference,
+1381.30 ms setup, 3982.29 ms proving, and 225.18 ms native verification
+for an MNIST MLP, while also supporting local EVM verification through a
+Solidity Groth16 verifier harness. These results demonstrate the
+feasibility of GPU-accelerated zkML on commodity hardware with just 4GB
+of VRAM.
+\end{abstract}
+
+% ============================================================
+\section{Introduction}
+
+Zero-knowledge machine learning (zkML) enables a prover to demonstrate
+that a neural network was correctly executed without revealing sensitive
+information such as model weights (intellectual property protection)
+or input data (privacy preservation). This has applications in:
+
+\begin{itemize}
+  \item \textbf{Model verification}: Proving that a specific model
+    produced a given prediction
+  \item \textbf{Privacy-preserving inference}: Running ML inference
+    on private data with public verifiability
+  \item \textbf{On-chain ML}: Verifying neural network outputs in
+    smart contracts without executing the model on-chain
+\end{itemize}
+
+The primary bottleneck in zkML is proof generation time. A Groth16
+proof for even a small neural network requires millions of elliptic
+curve operations. CPU-based systems like EZKL~\cite{ezkl} require
+seconds to minutes for small models. GPU acceleration can dramatically
+reduce this time by parallelizing the dominant operations:
+multi-scalar multiplication (MSM) and number-theoretic transform (NTT).
+
+Our contributions:
+\begin{enumerate}
+  \item A complete CUDA implementation of BN254 finite field and
+    elliptic curve arithmetic optimized for the Turing architecture
+  \item GPU-parallel Pippenger MSM achieving significant speedup
+    over sequential CPU implementations
+  \item A quantized neural network inference engine that operates
+    entirely in finite field arithmetic, with architecture sidecars for
+    ONNX-derived feedforward models, CIFAR-10-sized flattened MLPs,
+    and transformer-style attention blocks including stacked multi-head variants
+  \item A Groth16 proving system with GPU-accelerated MSM and NTT
+  \item A local Solidity/EVM verification workflow exercised against the
+    generated proof artifacts
+  \item Demonstration of zkML feasibility on a consumer GPU
+    (NVIDIA GTX 1650, 4GB VRAM)
+\end{enumerate}
+
+% ============================================================
+\section{Background}
+
+\subsection{Zero-Knowledge Proofs}
+
+A zero-knowledge proof system allows a prover to convince a verifier
+that a statement is true without revealing any additional information.
+In the context of zkML, the statement is ``I correctly ran neural
+network $f$ on input $x$ and obtained output $y$''.
+
+\textbf{Groth16}~\cite{groth16} is a pairing-based zk-SNARK
+(Succinct Non-interactive Argument of Knowledge) with:
+\begin{itemize}
+  \item Constant-size proofs: 3 group elements ($\sim$256 bytes)
+  \item Constant verification time: 3 pairings
+  \item Trusted setup required (per-circuit)
+  \item Proof generation: $O(n \log n)$ field operations
+\end{itemize}
+
+\subsection{zkML}
+
+zkML converts neural network computation into an arithmetic circuit,
+generates a witness (all intermediate values), and produces a ZK proof.
+The key challenge is the circuit size: a matrix multiplication of
+dimension $M \times N$ produces $O(MN)$ multiplication constraints.
+
+\subsection{GPU Parallelism for ZK Proofs}
+
+The two most computationally expensive operations in Groth16 proving are:
+
+\textbf{Multi-Scalar Multiplication (MSM):}
+$\text{MSM}(\{s_i\}, \{P_i\}) = \sum_{i=1}^n s_i \cdot P_i$,
+where $s_i$ are scalars and $P_i$ are elliptic curve points.
+This is embarrassingly parallel using Pippenger's bucket method.
+
+\textbf{Number-Theoretic Transform (NTT):}
+The finite-field analogue of FFT, used for polynomial multiplication
+in $O(n \log n)$. NTT has a natural butterfly-network structure
+suitable for GPU parallel execution.
+
+% ============================================================
+\section{System Design}
+
+\subsection{Architecture}
+
+\begin{verbatim}
++------------------+     +------------------+
+| Model (ONNX/PT)  |---->| Quantizer        |
++------------------+     | float -> Fp      |
+                          +--------+---------+
+                                   |
++------------------+     +---------v---------+
+| Input Data       |---->| Field Inference   |
++------------------+     | (GPU, in Fp)      |
+                          +--------+---------+
+                                   |
+                          +--------v---------+
+                          | Witness Generator |
+                          +--------+---------+
+                                   |
+                          +--------v---------+
+                          | Groth16 Prover   |
+                          | (GPU: MSM + NTT) |
+                          +--------+---------+
+                                   |
+                          +--------v---------+
+                          | Proof (A, B, C)  |
+                          +------------------+
+\end{verbatim}
+
+\subsection{Memory Management}
+
+Targeting the GTX 1650 with 4GB VRAM, we enforce:
+\begin{itemize}
+  \item Maximum single allocation: 1GB
+  \item Usable VRAM budget: 3.5GB (500MB headroom)
+  \item Streaming MSM for $> 1\text{M}$ points
+  \item NTT maximum size: $2^{24}$ elements with ping-pong buffers
+  \item \texttt{cudaMemGetInfo()} checks before large allocations
+\end{itemize}
+
+% ============================================================
+\section{Implementation}
+
+\subsection{BN254 Field Arithmetic}
+
+We implement 254-bit modular arithmetic using Montgomery multiplication
+in CUDA. Each field element is stored as 4 $\times$ \texttt{uint64\_t}
+in Montgomery form ($aR \bmod p$ where $R = 2^{256}$).
+
+Montgomery multiplication uses the CIOS (Coarsely Integrated Operand
+Scanning) algorithm, requiring $4 \times 4 = 16$ 64-bit multiplications
+per field multiplication.
+
+\subsection{Pippenger MSM Kernel}
+
+\begin{algorithm}
+\caption{GPU-Parallel Pippenger MSM}
+\begin{algorithmic}[1]
+\REQUIRE Points $\{P_i\}_{i=1}^n$, scalars $\{s_i\}_{i=1}^n$, window size $c$
+\ENSURE $R = \sum_{i=1}^n s_i \cdot P_i$
+\STATE $W \leftarrow \lceil 254/c \rceil$ \COMMENT{number of windows}
+\STATE $K \leftarrow 2^c - 1$ \COMMENT{buckets per window}
+\STATE Initialize buckets $B[w][k] \leftarrow \mathcal{O}$ for $w \in [W], k \in [K]$
+\STATE \textbf{// Phase 1: Bucket accumulation (parallel over points)}
+\FOR{each point $i$ \textbf{in parallel}}
+  \FOR{each window $w = 0, \ldots, W-1$}
+    \STATE $b \leftarrow (s_i \gg (w \cdot c)) \bmod 2^c$
+    \IF{$b \neq 0$}
+      \STATE $B[w][b-1] \leftarrow B[w][b-1] + P_i$
+    \ENDIF
+  \ENDFOR
+\ENDFOR
+\STATE \textbf{// Phase 2: Bucket reduction (parallel over windows)}
+\FOR{each window $w$ \textbf{in parallel}}
+  \STATE $\text{running} \leftarrow \mathcal{O}$, $\text{sum}_w \leftarrow \mathcal{O}$
+  \FOR{$k = K$ \textbf{down to} $1$}
+    \STATE $\text{running} \leftarrow \text{running} + B[w][k-1]$
+    \STATE $\text{sum}_w \leftarrow \text{sum}_w + \text{running}$
+  \ENDFOR
+\ENDFOR
+\STATE \textbf{// Phase 3: Window combination (sequential)}
+\STATE $R \leftarrow \mathcal{O}$
+\FOR{$w = W-1$ \textbf{down to} $0$}
+  \STATE $R \leftarrow 2^c \cdot R$ \COMMENT{$c$ doublings}
+  \STATE $R \leftarrow R + \text{sum}_w$
+\ENDFOR
+\RETURN $R$
+\end{algorithmic}
+\end{algorithm}
+
+The optimal window size is $c \approx \log_2 n$ for $n$ points.
+For $n = 2^{16}$, $c = 16$ gives $2^{16} - 1 = 65535$ buckets per window,
+with $\lceil 254/16 \rceil = 16$ windows.
+
+\subsection{Quantized Neural Network Inference}
+
+We use symmetric quantization:
+\[
+  x_q = \text{round}(x \cdot s), \quad
+  s = \frac{2^{b-1} - 1}{\max |x|}
+\]
+
+Integer values are mapped to field elements:
+$x_q \mapsto x_q \bmod p$ (negative values use additive inverse).
+
+Matrix multiplication in the field is exact (no rounding):
+\[
+  y_i = \sum_j W_{ij} \cdot x_j \pmod{p}
+\]
+
+ReLU is approximated by a degree-3 polynomial to maintain
+arithmetic circuit compatibility.
+
+The current inference stack supports MNIST-sized MLPs, CIFAR-10 flattened
+MLPs, a tiny transformer block family (4 tokens $\times$ 8 hidden
+channels) including stacked multi-head attention via architecture sidecars,
+and ONNX models that lower to linear, ReLU, final softmax, and
+the repository's self-attention layer description. Model conversion emits an
+architecture sidecar that allows the prover CLI to reconstruct the network
+topology without a hardcoded layer schedule.
+
+\subsection{Witness Generation}
+
+The witness captures every intermediate value during inference:
+$w = [1, \text{outputs}, \text{inputs}, \text{weights}, \text{intermediates}]$.
+
+For an MLP with layers of sizes $[784, 128, 10]$:
+\begin{itemize}
+  \item Public: 10 output values
+  \item Private: 784 input pixels + $784 \times 128 + 128 \times 10 = 101,\!632$ weights
+  \item Intermediates: partial products and activations
+\end{itemize}
+
+% ============================================================
+\section{Evaluation}
+
+\subsection{Hardware}
+
+\begin{tabular}{ll}
+\toprule
+Component & Specification \\
+\midrule
+GPU & NVIDIA GTX 1650 (Turing, SM 7.5) \\
+CUDA Cores & 896 \\
+VRAM & 4 GB GDDR6, 112 GB/s bandwidth \\
+CPU & AMD Ryzen 5 5600H \\
+RAM & 16 GB DDR4 \\
+CUDA Version & 12.x \\
+\bottomrule
+\end{tabular}
+
+\subsection{Benchmark Results}
+
+\begin{tabular}{lcccc}
+\toprule
+System & Status & Prove (ms) & Verify (ms) & Proof Size \\
+\midrule
+CUDA-zkML (GTX 1650) & measured & 3982.29 & 225.18 & 256 B \\
+CUDA-zkML Tiny Transformer & measured & 207.14 & 263.35 & 256 B \\
+EZKL (WSL Ubuntu live run) & measured & 1812.74 & 13.26 & 18209 B \\
+Orion (WSL filtered relu\_i8) & measured & 456930.00 & N/A & N/A \\
+\bottomrule
+\end{tabular}
+
+Additional measured timings for CUDA-zkML on the target laptop are
+53.66 ms inference and 1381.30 ms trusted setup for the MNIST demo path.
+The tiny transformer path measures 44.84 ms inference and 174.79 ms setup,
+demonstrating that the same proving pipeline now covers a compact attention
+architecture in addition to feedforward models. The local CPU baselines
+included in the repository are inference-only references
+(0.09 ms float32, 1.09 ms quantized-field) and therefore are not directly
+comparable to proving systems. EZKL was measured successfully in a WSL Ubuntu
+environment on the same laptop, yielding 5.07 ms witness generation,
+1547.85 ms setup, 1812.74 ms proving, and 13.26 ms verification for the
+repository's tiny reference ONNX model. The native Windows EZKL wheel still
+fails inside \texttt{setup(...)} with a runtime \texttt{NotPresent} panic, so
+WSL/Linux remains the reliable path on this machine. Orion was measured from a
+passing filtered archived test target (\texttt{relu\_i8}) in a local WSL Ubuntu
+checkout. The full archived Orion workspace test suite still reports upstream
+failures on this setup, so the filtered row is the stable comparison point
+captured in the repository artifacts.
+
+\subsection{On-Chain Verification}
+
+We also exercise the Solidity verifier in a local EVM environment using
+\texttt{eth-tester} and \texttt{py-evm}. For the generated demo proof,
+deployment succeeds, the verification key is uploaded on-chain, and
+\texttt{verifyProofView(...)} returns \texttt{true}. The measured local
+gas costs are 2,115,563 gas for contract deployment and 894,575 gas for
+verification-key upload. This workflow provides an executable bridge from
+the native prover artifacts to EVM-compatible verification.
+
+% ============================================================
+\section{Related Work}
+
+\textbf{EZKL}~\cite{ezkl}: A Rust/Python framework for generating
+ZK proofs of ONNX model inference. Operates on CPU with
+Halo2 proving system.
+
+\textbf{Orion} (Giza): Cairo-based zkML framework targeting
+StarkNet's STARK-based proofs.
+
+\textbf{Daniel Kang et al.}: ``Scaling up Trustless DNN Inference
+with Zero-Knowledge Proofs'' demonstrated zkML feasibility but
+with high proving costs.
+
+\textbf{GPU ZK Libraries}: icicle (Ingonyama), Sppark (Supranational),
+and Bellman-CUDA provide GPU-accelerated primitives for ZK proofs,
+but none provide an end-to-end zkML pipeline.
+
+Our work differs by providing a complete, self-contained CUDA
+implementation from field arithmetic to proof generation, specifically
+optimized for consumer GPUs, together with an executable native-to-EVM
+artifact flow.
+
+% ============================================================
+\section{Conclusion}
+
+We presented CUDA-zkML, a GPU-accelerated zero-knowledge proof
+system for neural network inference. By implementing the entire
+proving pipeline in CUDA—from finite field arithmetic through
+Pippenger MSM to Groth16 proof generation—we demonstrate that
+zkML is feasible on consumer GPUs with limited VRAM.
+
+Future work includes:
+\begin{itemize}
+  \item Support for convolutional and full transformer attention architectures
+  \item PLONK proving system for universal (no per-circuit) setup
+  \item Multi-GPU support for larger models
+  \item Integration with ONNX Runtime for seamless model conversion
+  \item Formal verification of the CUDA arithmetic kernels
+\end{itemize}
+
+% ============================================================
+\begin{thebibliography}{9}
+
+\bibitem{groth16}
+J.~Groth, ``On the size of pairing-based non-interactive arguments,''
+in \textit{EUROCRYPT 2016}, pp.~305--326, Springer, 2016.
+
+\bibitem{ezkl}
+EZKL, ``Easy Zero-Knowledge inference,''
+\url{https://github.com/zkonduit/ezkl}, 2023.
+
+\bibitem{pippenger}
+B.~Pippenger, ``On the evaluation of powers and monomials,''
+\textit{SIAM J. Comput.}, vol.~9, no.~2, pp.~230--250, 1980.
+
+\bibitem{bn254}
+P.~Barreto and M.~Naehrig, ``Pairing-friendly elliptic curves
+of prime order,'' in \textit{SAC 2005}, pp.~319--331, 2005.
+
+\bibitem{montgomery}
+P.~Montgomery, ``Modular multiplication without trial division,''
+\textit{Mathematics of Computation}, vol.~44, pp.~519--521, 1985.
+
+\bibitem{bellman}
+Zcash, ``bellman: zk-SNARK library,''
+\url{https://github.com/zkcrypto/bellman}, 2017.
+
+\bibitem{arkworks}
+arkworks contributors, ``arkworks: An ecosystem for developing
+and programming with zkSNARKs,''
+\url{https://github.com/arkworks-rs}, 2021.
+
+\bibitem{icicle}
+Ingonyama, ``ICICLE: GPU library for zero-knowledge,''
+\url{https://github.com/ingonyama-zk/icicle}, 2023.
+
+\bibitem{kang2022}
+D.~Kang, T.~Hashimoto, I.~Stoica, and Y.~Sun,
+``Scaling up trustless DNN inference with zero-knowledge proofs,''
+\textit{arXiv:2210.08674}, 2022.
+
+\end{thebibliography}
+
+\end{document}

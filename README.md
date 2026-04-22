@@ -1,11 +1,17 @@
 # CUDA-zkML: GPU-Accelerated Zero-Knowledge Proofs for Neural Network Inference
 
-**Author:** George David Tsitlauri  
-**Affiliation:** Dept. of Informatics & Telecommunications, University of Thessaly, Greece  
-**Contact:** gdtsitlauri@gmail.com  
-**Year:** 2026
 
 A CUDA-native system that generates zero-knowledge proofs for neural network inference. Proves that a model ran correctly on given inputs **without revealing the model weights or inputs**, using GPU parallelism for significant speedup over CPU-based tools.
+
+
+## Project Metadata
+
+| Field | Value |
+| --- | --- |
+| Author | George David Tsitlauri |
+| Affiliation | Dept. of Informatics & Telecommunications, University of Thessaly, Greece |
+| Contact | gdtsitlauri@gmail.com |
+| Year | 2026 |
 
 ## Architecture
 
@@ -431,18 +437,4 @@ shows a successful local EVM verification with:
 - ecAdd (0x06), ecMul (0x07), ecPairing (0x08)
 - Local `eth-tester` deployment and verification harness included
 
-## License
 
-MIT License. See [LICENSE](LICENSE).
-
-## Citation
-
-```bibtex
-@misc{tsitlauri2026cudazkml,
-  author = {George David Tsitlauri},
-  title  = {CUDA-zkML: GPU-Accelerated Zero-Knowledge Proofs for Neural Network Inference},
-  year   = {2026},
-  institution = {University of Thessaly},
-  email  = {gdtsitlauri@gmail.com}
-}
-```

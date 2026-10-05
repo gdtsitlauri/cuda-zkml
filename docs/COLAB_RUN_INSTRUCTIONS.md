@@ -1,7 +1,7 @@
 # What you do now (Google Colab)
 
 1. Download/keep `CUDA-zkML-PCANI-2026-Colab-Ready.zip`.
-2. Open `PCANI_Colab_Final_Validation.ipynb` in Google Colab.
+2. Open `notebooks/PCANI_Colab_Final_Validation.ipynb` in Google Colab.
 3. Select **Runtime -> Change runtime type -> T4 GPU** (or another NVIDIA GPU).
 4. Run cells from top to bottom.
 5. When the notebook asks for a ZIP, upload `CUDA-zkML-PCANI-2026-Colab-Ready.zip`.
@@ -13,7 +13,7 @@ The notebook is fail-closed: build, proof, native verification, exact CUDA/Pytho
 
 ## Gate F (replication on another GPU, MNIST, matched EZKL)
 
-Same steps with `PCANI_Colab_GateF.ipynb`, choosing a GPU other than T4. It
+Same steps with `notebooks/PCANI_Colab_GateF.ipynb`, choosing a GPU other than T4. It
 downloads `GateF_<gpu>_<date>.zip`. See `docs/GATE_F_RUNBOOK.md`.
 
 The final result may support or reject the current PCANI hypothesis. Both outcomes are valid research evidence; the returned archive is required before the paper can make performance claims.

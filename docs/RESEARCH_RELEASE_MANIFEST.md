@@ -1,5 +1,8 @@
 # CUDA-zkML / PCANI Research Release Manifest
 
+> Historical manifest of the 2026-09 release. The 2026-10 work (statement v2: context binding, private
+> model/input, in-circuit routing, MPC ceremony) is described in `README.md` and `FUTURE_WORK_ROADMAP.md`.
+
 **Release:** 2026-09 single selected-proof research release  
 **Version:** `2026.3-single-proof`
 
@@ -13,7 +16,7 @@
 - Deterministic `sklearn Digits` benchmark.
 - Completed NVIDIA T4 validation artifacts under `results/gpu_validation_2026/`.
 - Protocol-v2 re-analysis under `results/gpu_validation_2026/single_proof_v2/`.
-- Research paper source/PDF.
+- Research paper source/PDF (removed in 2026-10; to be rewritten after the GPU runs).
 
 ## Validation status
 
@@ -35,4 +38,4 @@ The protocol-v2 single-proof redesign yields 1602.51 ms expected selected-proof 
 ## Reproduction
 
 - `python/pcani_single_proof_finalize.py results/gpu_validation_2026` reproduces the protocol-v2 re-analysis from the frozen GPU artifacts.
-- `PCANI_Colab_Final_Validation.ipynb` remains the original protocol-v1 GPU experiment notebook and is kept for reproducibility/history.
+- `notebooks/PCANI_Colab_Final_Validation.ipynb` remains the original protocol-v1 GPU experiment notebook and is kept for reproducibility/history.

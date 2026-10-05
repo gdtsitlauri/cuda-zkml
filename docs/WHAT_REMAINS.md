@@ -20,7 +20,7 @@ The core 2026 PCANI research prototype is now implemented and the first NVIDIA T
 ## What remains for publication / strong PhD claim
 
 Items 1–3 are implemented and only need a GPU run (`scripts/run_gate_f.sh` or
-`PCANI_Colab_GateF.ipynb`; details in `docs/GATE_F_RUNBOOK.md`).
+`notebooks/PCANI_Colab_GateF.ipynb`; details in `docs/GATE_F_RUNBOOK.md`).
 
 1. Repeat protocol v2 on at least one additional NVIDIA GPU. — *run only*
 2. Add at least one larger benchmark/model family beyond Digits. — *run only* (MNIST MLP + lowered-convolution family)

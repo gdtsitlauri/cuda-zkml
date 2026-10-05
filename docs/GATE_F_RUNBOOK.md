@@ -12,7 +12,7 @@ Gate F items from `EXPERIMENT_PLAN_2026.md` and what now exists for each:
 
 ## One command
 
-Google Colab: open `PCANI_Colab_GateF.ipynb`, choose a GPU **other than T4**
+Google Colab: open `notebooks/PCANI_Colab_GateF.ipynb`, choose a GPU **other than T4**
 (L4/A100), run all cells, keep the downloaded `GateF_<gpu>_<date>.zip`.
 
 Any Linux machine with an NVIDIA GPU, CUDA toolkit, CMake and Python:

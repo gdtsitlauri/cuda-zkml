@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this work, please cite it as below."
+title: "CUDA-zkML / PCANI: GPU zero-knowledge proofs of neural-network inference with proof-cost-aware adaptive routing"
+type: software
+authors:
+  - given-names: "George David"
+    family-names: "Tsitlauri"
+    affiliation: "Department of Informatics and Telecommunications, University of Thessaly"
+date-released: 2026-10-05
+license: MIT
+repository-code: "https://github.com/gdtsitlauri/cuda-zkml"
+abstract: >-
+  A CUDA Groth16 prover for zero-knowledge proofs of quantized neural-network inference on BN254, with
+  proof-cost-aware adaptive inference (PCANI): one proof for the selected model of a cheap-to-expensive
+  cascade. Statement v2 adds context-bound proofs against replay, exact ReLU with range proofs, native
+  convolution, Poseidon-committed private models and inputs with in-circuit routing, batching and a
+  Groth16 phase-2 MPC ceremony.
+keywords: [zero-knowledge proofs, zkML, Groth16, CUDA, GPU, Poseidon, verifiable machine learning]

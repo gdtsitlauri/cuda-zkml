@@ -4,7 +4,7 @@ Covers: Poseidon reference vector, commitments, context derivation, v2 statement
 parsing, exact integer reference inference (RELU_EXACT / CONV2D), routing
 semantics, and the protocol-v2 verifier's context / replay / route checks
 (native Groth16 verification is stubbed here; it is exercised end-to-end on GPU
-in PCANI_Colab_Phase12.ipynb).
+in notebooks/PCANI_Colab_Phase12.ipynb).
 """
 import hashlib
 import json

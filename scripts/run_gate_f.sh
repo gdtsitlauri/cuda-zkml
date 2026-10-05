@@ -39,7 +39,7 @@ mkdir -p "$OUT"
   nvidia-smi; nvcc --version; git rev-parse HEAD 2>/dev/null || true
 } > "$OUT/environment.txt" 2>&1
 
-# Same dependency set as PCANI_Colab_Final_Validation.ipynb (the full pytest
+# Same dependency set as notebooks/PCANI_Colab_Final_Validation.ipynb (the full pytest
 # suite imports web3/solc/py-ecc), plus scikit-learn for the benchmarks.
 python -m pip install -q -r requirements.txt py-ecc scikit-learn pytest onnx
 if [[ "$EZKL" == "1" ]]; then python -m pip install -q "ezkl>=23" || EZKL=0; fi

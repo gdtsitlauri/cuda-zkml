@@ -8,7 +8,7 @@
 Ο κώδικας για κάθε επιμέρους στόχο της Φάσης 1 και της Φάσης 2 είναι γραμμένος.
 Το τμήμα που δεν χρειάζεται GPU (κυκλώματα, witness, Poseidon, τελετή, Python)
 ελέγχθηκε τοπικά. Η πλήρης GPU αλυσίδα (setup, proof, verify) τρέχει με **ένα
-notebook**: `PCANI_Colab_Phase12.ipynb`, που καλεί το `scripts/run_phase12.sh`.
+notebook**: `notebooks/PCANI_Colab_Phase12.ipynb`, που καλεί το `scripts/run_phase12.sh`.
 
 | Στόχος | Υλοποίηση | Τοπικός έλεγχος (χωρίς GPU) | Μένει |
 |---|---|---|---|
@@ -22,7 +22,7 @@ notebook**: `PCANI_Colab_Phase12.ipynb`, που καλεί το `scripts/run_pha
 | 2.5 τελετή MPC | `zkml-ceremony contribute/verify` (`src/prover/ceremony.cuh`), PoK + pairings | ✅ ακριβής άλγεβρα + απόρριψη αλλοιώσεων (9/9) | E5· πραγματικοί συμμετέχοντες (Φάση 3)· το phase 1 παραμένει single-party |
 | 2.6 batching | `--batch-inputs` | ✅ | E3 (χρόνοι) |
 
-Τρέξιμο τώρα: `PCANI_Colab_Phase12.ipynb` (οποιαδήποτε NVIDIA GPU) → `Phase12_<gpu>_<date>.zip`.
+Τρέξιμο τώρα: `notebooks/PCANI_Colab_Phase12.ipynb` (οποιαδήποτε NVIDIA GPU) → `Phase12_<gpu>_<date>.zip`.
 Τοπικά, χωρίς CUDA: `tests/host/run_host_tests.sh` και `pytest`.
 Η διαδρομή v1 (τα δημοσιευμένα αποτελέσματα T4) **δεν άλλαξε** και αναπαράγεται όπως πριν.
 
@@ -39,7 +39,7 @@ notebook**: `PCANI_Colab_Phase12.ipynb`, που καλεί το `scripts/run_pha
 
 | Βήμα | Πώς |
 |---|---|
-| Επανάληψη protocol v2 σε 2η GPU (όχι T4) | `PCANI_Colab_GateF.ipynb` (L4/A100) ή `bash scripts/run_gate_f.sh` |
+| Επανάληψη protocol v2 σε 2η GPU (όχι T4) | `notebooks/PCANI_Colab_GateF.ipynb` (L4/A100) ή `bash scripts/run_gate_f.sh` |
 | MNIST-MLP και MNIST-CNN | ίδιο script (`WORKLOADS="mnist_mlp mnist_conv"`) |
 | Δίκαιη σύγκριση με EZKL | ίδιο script (`EZKL=1`) |
 

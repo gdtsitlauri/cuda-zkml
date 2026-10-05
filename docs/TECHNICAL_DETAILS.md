@@ -494,5 +494,5 @@ See `docs/GPU_VALIDATION_RESULTS_2026.md`, `docs/PCANI_PROTOCOL_V2.md`, `docs/RE
 - iden3 `.r1cs`/`.wtns` export.
 
 `zkml-ceremony` runs a Groth16 phase-2 MPC. Without CUDA these pieces are tested by
-`tests/host/run_host_tests.sh` and `pytest`. On a GPU, `PCANI_Colab_Phase12.ipynb`
+`tests/host/run_host_tests.sh` and `pytest`. On a GPU, `notebooks/PCANI_Colab_Phase12.ipynb`
 runs everything end to end. See `FUTURE_WORK_ROADMAP.md` and `docs/THREAT_MODEL.md`.

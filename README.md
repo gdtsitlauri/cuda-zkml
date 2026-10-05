@@ -58,7 +58,7 @@ from host (no-GPU) tests of the exact circuits the prover uses; the GPU end-to-e
 - Protocol v1 failed its cost objective (above). It is kept as the negative baseline.
 - Protocol v2 proves that the selected route is valid, not that it was the cheapest valid route.
 - The 14.94% saving is from one GPU (T4) and one dataset (Digits). Replication on another GPU, MNIST and a matched
-  EZKL comparison are prepared (`PCANI_Colab_GateF.ipynb`) but not run.
+  EZKL comparison are prepared (`notebooks/PCANI_Colab_GateF.ipynb`) but not run.
 - Statement v2 has not yet been run end to end on a GPU; its proving times are unknown.
 - Privacy is expensive: the private statement needs about 8x more constraints than the public one. Whether this
   outweighs the PCANI saving is an open research question.
@@ -71,7 +71,7 @@ from host (no-GPU) tests of the exact circuits the prover uses; the GPU end-to-e
 
 ```
 CUDA-zkML-PCANI-SingleProof-2026/
-  README.md, LICENSE (MIT), FUTURE_WORK_ROADMAP.md (status + what remains)
+  README.md, README_GR.md, LICENSE (MIT), CITATION.cff, FUTURE_WORK_ROADMAP.md (status + what remains)
   SUMMARY_FOR_SUPERVISOR_GR.txt   plain-language summary of the whole study (Greek)
   src/
     field/, curve/, msm/, ntt/    BN254 arithmetic, pairing, Pippenger MSM, NTT (CUDA)
@@ -84,10 +84,11 @@ CUDA-zkML-PCANI-SingleProof-2026/
   python/                         experiment drivers, trained-model exporter, phase-1/2 end-to-end driver
   tests/                          CUDA tests, Python tests, underconstraint checker
   tests/host/                     no-GPU tests: gadgets, statement v2, MPC ceremony (+ CUDA shim)
-  docs/                           threat model, protocol v2, GPU validation results, technical details
+  docs/                           threat model, protocol v2, GPU validation results, technical details,
+                                  final research result, release notes and manifest, Colab instructions
   results/gpu_validation_2026/    T4 run: per-path artifacts, proofs, route bundles, summaries
   benchmarks/                     benchmark results and baselines
-  PCANI_Colab_*.ipynb             Final validation (done), Gate F, Phase 1-2 end-to-end
+  notebooks/                      Colab: final validation (done), Gate F, Phase 1-2 end to end
 ```
 
 `docs/TECHNICAL_DETAILS.md` has build options, the CLI and Python API, and implementation details (MSM, NTT,
@@ -97,10 +98,10 @@ pairing, Solidity export).
 
 | result | command | where |
 |---|---|---|
-| 1 | `PCANI_Colab_Final_Validation.ipynb` | Colab GPU |
+| 1 | `notebooks/PCANI_Colab_Final_Validation.ipynb` | Colab GPU |
 | 2–6 (logic) | `tests/host/run_host_tests.sh` and `pytest` | any CPU, no CUDA |
-| 2–6 (GPU, end to end) | `PCANI_Colab_Phase12.ipynb` (runs `scripts/run_phase12.sh`) | Colab GPU, ~1–2 h |
-| replication | `PCANI_Colab_GateF.ipynb` | Colab GPU (not T4), ~2–3 h |
+| 2–6 (GPU, end to end) | `notebooks/PCANI_Colab_Phase12.ipynb` (runs `scripts/run_phase12.sh`) | Colab GPU, ~1–2 h |
+| replication | `notebooks/PCANI_Colab_GateF.ipynb` | Colab GPU (not T4), ~2–3 h |
 
 Build locally: `cmake -S . -B build -DCMAKE_CUDA_ARCHITECTURES=<sm>` and `cmake --build build`; then `ctest --test-dir build`.
 
@@ -108,7 +109,7 @@ Build locally: `cmake -S . -B build -DCMAKE_CUDA_ARCHITECTURES=<sm>` and `cmake 
 
 Roadmap Phases 1 and 2 are implemented. What remains is only runs and external work (`FUTURE_WORK_ROADMAP.md`):
 
-- **Runs:** `PCANI_Colab_Phase12.ipynb` (GPU end to end for statement v2) and `PCANI_Colab_GateF.ipynb`
+- **Runs:** `notebooks/PCANI_Colab_Phase12.ipynb` (GPU end to end for statement v2) and `notebooks/PCANI_Colab_GateF.ipynb`
   (second GPU, MNIST, matched EZKL).
 - **External:** a ceremony with real participants, a cryptographer's review and a systematic novelty audit.
 
@@ -132,4 +133,5 @@ The draft paper was removed; it will be rewritten after the GPU runs.
 
 ## Citation and license
 
-George David Tsitlauri, University of Thessaly, 2026. MIT License (`LICENSE`).
+George David Tsitlauri, University of Thessaly, 2026. MIT License (`LICENSE`); citation metadata in
+`CITATION.cff`.

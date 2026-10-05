@@ -1,489 +1,135 @@
-# CUDA-zkML: GPU-Accelerated Zero-Knowledge Proofs for Neural Network Inference
+# CUDA-zkML / PCANI
 
+**Can a service prove which neural network produced its answer — cheaply enough, without replay, and without revealing the model or the input?**
 
-A CUDA-native research system for zero-knowledge proofs of neural-network inference, plus a 2026 research branch for **proof-cost-aware adaptive inference**. The hardened branch proves execution of the configured R1CS circuit with private witness values and removes secret proving-key scalars from persisted artifacts.
+CUDA-zkML is a GPU (CUDA) Groth16 prover for zero-knowledge proofs of quantized neural-network inference on
+BN254. The field arithmetic, MSM, NTT and pairing are written for the GPU. A proof is 256 bytes and verifies in
+milliseconds, natively or in a Solidity contract.
 
-**PCANI security scope:** protocol v1 uses a verified prefix proof chain. The 2026 T4 run showed that this is cryptographically valid but economically counterproductive because cumulative proving cost exceeds the full-model proof. Protocol v2 therefore emits **one model-specific Groth16 proof for the selected path** and verifies the path's calibrated acceptance predicate from proof-bound public scores. Verification-key digests and model tags pin the permitted exact model. Protocol v2 proves validity of the selected route; it does not prove that no cheaper route would also have been valid. Inputs and route scores remain public in this research release.
+**PCANI** (proof-cost-aware adaptive inference) adds a cascade of models from cheap to expensive:
+- if the cheap model is confident, only its proof is produced;
+- otherwise the next model is used;
+- the routing decision itself is proof-bound.
 
-**Performance scope:** GPU acceleration is implemented, but cross-system speedup claims are only valid for matched workloads. Historical EZKL/Orion rows in this repository are retained as engineering measurements and are not treated as apples-to-apples evidence unless workload signatures match.
+The 2026-10 work adds **statement v2**:
+- proofs bound to a session context (anti-replay);
+- exact ReLU with range proofs, and native convolution;
+- a private model and a private input behind Poseidon commitments, with routing computed inside the circuit;
+- batching and a Groth16 phase-2 MPC ceremony.
 
+| part | content | evidence |
+|---|---|---|
+| prover | GPU Groth16 (MSM, NTT, pairing), group-only proving keys, Solidity verifier | ctest, T4 validation run |
+| PCANI v1/v2 | proof-chain vs single selected proof, pinned model tags and keys | completed T4 experiment |
+| statement v2 | context binding, RELU_EXACT, CONV2D, Poseidon commitments, in-circuit routing, batching | host tests, Python tests, Colab notebook |
+| setup | `zkml-ceremony` phase-2 MPC | host tests |
 
-## Project Metadata
+## Main findings
 
-| Field | Value |
-| --- | --- |
-| Author | George David Tsitlauri |
-| Affiliation | Dept. of Informatics & Telecommunications, University of Thessaly, Greece |
-| Contact | gdtsitlauri@gmail.com |
-| Year | 2026 |
+GPU numbers come from the completed NVIDIA T4 run (`results/gpu_validation_2026/`). Statement-v2 numbers come
+from host (no-GPU) tests of the exact circuits the prover uses; the GPU end-to-end run is pending (see below).
 
-## Architecture
+1. **Proving a fixed chain of cascade models does not pay; one selected proof does.**
+   - Protocol v1 (prove every tried model): 96.11% accuracy, but the expected proof cost was 2899.95 ms against
+     1884.02 ms for always proving the large model. The hypothesis is **rejected** (−53.9%).
+   - Protocol v2 (one proof for the selected model, with its proof-bound margin checked against the calibrated
+     threshold): **1602.51 ms, a 14.94% reduction**, at the same 96.11% accuracy (0.83 pp below the large
+     model). Measured on the same per-path prover medians and the frozen held-out routing trace.
+2. **Proofs can be bound to a session (anti-replay).** A public context, H(session, nonce, time, policy), is tied
+   into the R1CS. A proof for another session or a replayed proof is rejected, natively and on chain
+   (`PCANIContextVerifier.sol`). The work also found and fixed **public-input aliasing in `Verifier.sol`**: inputs
+   were bounded by the base field q instead of the scalar field r, so x and x + r verified alike.
+3. **The circuits are not underconstrained.** The circuit is exported in the iden3 `.r1cs` format. An independent
+   Python checker perturbs every variable and finds **0 unpinned variables**: 8,082 constraints in the
+   public-model statement and 62,692 constraints / 62,779 variables in the private one. Forged witnesses are
+   rejected, for example `relu(-9) = -9` and out-of-range inputs.
+4. **Trained models with an exact ReLU.** The old polynomial activation with random weights is replaced by a
+   bit-decomposed ReLU with range-checked rescaling. A trained digits MLP reaches 97.3% in float and **97.1% as
+   the exact integer model the circuit proves**. C++ and Python scores agree bit for bit (batch of 8).
+5. **Private model and private input.** Weights and inputs are hidden behind Poseidon commitments. The Poseidon
+   implementation equals the circomlib instance (reference test vector, `poseidon([1,2])`). The top-1/top-2
+   routing comparison runs inside the circuit, so only the route bit and the class are public.
+6. **Trusted setup can be distributed.** `zkml-ceremony` runs Groth16 phase 2: each contribution rescales δ and
+   the L/H queries and publishes a proof of knowledge. Every contribution is checked with pairings, and tampered
+   keys, transcripts or verification keys are rejected (9/9 checks).
 
-```
-┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Model       │────>│  Quantizer   │────>│  Field       │
-│  (ONNX/PT)   │     │  float→Fp    │     │  Inference   │
-└──────────────┘     └──────────────┘     │  (GPU)       │
-                                           └──────┬───────┘
-┌──────────────┐                                   │
-│  Input Data  │───────────────────────────────────┘
-└──────────────┘                                   │
-                     ┌──────────────┐     ┌────────v───────┐
-                     │  R1CS        │<────│  Witness       │
-                     │  Circuit     │     │  Generator     │
-                     └──────┬───────┘     └────────────────┘
-                            │
-                     ┌──────v───────┐
-                     │  Groth16     │
-                     │  Prover      │
-                     │  (GPU: MSM   │
-                     │   + NTT)     │
-                     └──────┬───────┘
-                            │
-                     ┌──────v───────┐     ┌──────────────┐
-                     │  Proof       │────>│  Verifier    │
-                     │  (A, B, C)   │     │  (Native +   │
-                     │  ~256 bytes  │     │   Solidity)  │
-                     └──────────────┘     └──────────────┘
-```
+## Negative and limiting results (reported as such)
 
-## Hardware Requirements
+- Protocol v1 failed its cost objective (above). It is kept as the negative baseline.
+- Protocol v2 proves that the selected route is valid, not that it was the cheapest valid route.
+- The 14.94% saving is from one GPU (T4) and one dataset (Digits). Replication on another GPU, MNIST and a matched
+  EZKL comparison are prepared (`PCANI_Colab_GateF.ipynb`) but not run.
+- Statement v2 has not yet been run end to end on a GPU; its proving times are unknown.
+- Privacy is expensive: the private statement needs about 8x more constraints than the public one. Whether this
+  outweighs the PCANI saving is an open research question.
+- Setup phase 1 (powers of tau) is still single-party; the ceremony covers phase 2 only.
+- Proofs certify the quantized integer model, not the float model. The architecture is always public.
+- Historical EZKL/Orion rows are engineering measurements, not matched comparisons.
+- No external cryptographic audit and no systematic novelty audit have been done.
 
-| Component | Minimum | Tested |
-|-----------|---------|--------|
-| GPU | NVIDIA (Compute ≥ 7.5) | GTX 1650 (4GB) |
-| VRAM | 4 GB | 4 GB |
-| CUDA | 12.0+ | 12.x |
-| RAM | 8 GB | 16 GB |
-| OS | Windows 10+ / Linux | Windows 11, Ubuntu 22.04 |
-
-**Note:** Optimized for GTX 1650 (SM 7.5, 896 CUDA cores, 4GB VRAM).
-All GPU allocations fit within a 3.5GB budget. For GPUs with more VRAM,
-larger models and batch sizes are automatically supported.
-
-## Quick Start
-
-### Build (Linux)
-
-```bash
-# Prerequisites: CUDA 12.x, CMake 3.18+, GCC 11+
-sudo apt install cmake build-essential
-
-# Clone and build
-git clone https://github.com/cuda-zkml/cuda-zkml.git
-cd cuda-zkml
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
-```
-
-### Build (Windows)
-
-```powershell
-# Prerequisites: CUDA 12.x, CMake 3.18+, Visual Studio 2022
-# MSVC host compiler with CUDA toolkit integration
-
-mkdir build && cd build
-cmake .. -G "Visual Studio 17 2022"
-cmake --build . --config Release
-```
-
-### Run Demo
-
-```bash
-# Generate and verify a proof for MNIST MLP inference
-./zkml-prove --demo
-```
-
-Expected output:
-```
-=== CUDA-zkML Demo: Proving MNIST MLP Inference ===
-GPU: NVIDIA GeForce GTX 1650 (SM 7.5, 16 SMs, 4096 MB VRAM)
-[1/5] Creating MNIST MLP model (784 → 128 → 10)...
-[2/5] Generating random input (784 pixels)...
-[3/5] Running quantized inference on GPU...
-[4/5] Generating witness and R1CS circuit...
-[5/5] Running Groth16 proof generation (GPU-accelerated)...
-=== Results ===
-Proof valid: YES
-PROOF GENERATION COMPLETE.
-```
-
-### Prove Custom Model
-
-```bash
-# Prove inference on a custom model
-./zkml-prove --model model.onnx --input input.npy --output proof.bin
-
-# Verify the proof
-./zkml-verify --vk vk.bin --proof proof.bin --public-inputs inputs.json
-```
-
-Notes:
-- `zkml-prove` accepts model files in `.bin` and `.onnx` formats.
-- `zkml-prove` accepts input files in `.bin` and `.npy` (`float32`) formats.
-- `zkml-verify` accepts public inputs in `.bin` and `.json` formats.
-- ONNX conversion now emits `model.weights.bin.arch.json` sidecars so the CLI can
-  reconstruct non-MNIST feedforward topologies without hardcoded dimensions.
-- For raw `.bin` weights, pass `--arch model.bin.arch.json` or place the sidecar
-  next to the weights so `zkml-prove` can auto-detect it.
-- The built-in defaults cover:
-  - MNIST MLP: `784 -> 128 -> 10`
-  - CIFAR-10 flattened MLP: `3072 -> 256 -> 64 -> 10`
-  - Tiny transformer: `32 -> self_attention(4x8) -> ReLU -> 4`
-- The CIFAR-10 flattened MLP path has been smoke-tested through
-  `zkml-prove -> zkml-verify` using architecture sidecars on the GTX 1650 setup.
-  The tiny transformer attention path now also passes the same CLI
-  `zkml-prove -> zkml-verify` flow end-to-end.
-  Architecture sidecars now also support stacked multi-head attention blocks
-  (`num_heads` metadata on `self_attention` layers), and the repository test
-  suite exercises a 2-head / 2-block transformer prove/verify path.
-
-### Reuse a Proving Key
-
-```bash
-# First run: setup + save PK
-./zkml-prove --model model.bin --input input.bin --output proof.bin \
-  --vk vk.bin --public-inputs public_inputs.bin --pk-save pk.bin
-
-# Second run: skip setup and reuse PK
-./zkml-prove --model model.bin --input input2.bin --output proof2.bin \
-  --vk vk.bin --public-inputs public_inputs2.bin --pk-load pk.bin
-```
-
-Notes:
-- `--pk-save` now writes hardened **v3** proving keys containing group elements only.
-- v3 serialization refuses trapdoor values and scalar-domain query exponents.
-- legacy v2 proving keys are rejected because they could contain toxic setup material; regenerate setup instead.
-- `--pk-load` requires an existing `vk.bin` for verification and artifact checks.
-- true out-of-core/chunked proving-key execution remains future work; the loader no longer pretends skipped query points are usable.
-
-### Python API
-
-```python
-from zkml import Prover, Model, export_solidity_bundle
-import numpy as np
-
-# Load model
-model = Model.from_onnx("model.onnx")
-# Or: model = Model.create_mnist_mlp()
-# Or: model = Model.create_cifar_mlp()
-
-# Create prover
-prover = Prover(model, cli_path="./build")
-
-# Prove and verify
-input_data = np.random.randn(model.input_size).astype(np.float32)
-result = prover.prove_and_verify(input_data)
-
-print(f"Valid: {result['valid']}")
-print(f"Prove time: {result['prove_time_ms']:.1f} ms")
-print(f"Proof size: {result['proof_size_bytes']} bytes")
-
-# Export Solidity/Ethers-friendly calldata after proving
-bundle = export_solidity_bundle(
-    "vk.bin",
-    "proof.bin",
-    "public_inputs.bin",
-    "solidity_artifacts"
-)
-print(bundle["verifyProofArgs"]["publicInputs"])
-```
-
-### Export Solidity Artifacts
-
-```bash
-cd python
-python export_solidity.py \
-  --vk ../build/vk.bin \
-  --proof ../build/proof.bin \
-  --public-inputs ../build/public_inputs.bin \
-  --output-dir ../build/solidity_artifacts
-```
-
-Generated files:
-- `vk.solidity.json`
-- `proof.solidity.json`
-- `public_inputs.solidity.json`
-- `calldata.solidity.json`
-- `verifier_call.txt`
-
-### Local On-Chain Verification Workflow
-
-```bash
-cd python
-python onchain_verify.py \
-  --vk ../proofs/vk.bin \
-  --proof ../proofs/proof.bin \
-  --public-inputs ../proofs/public_inputs.bin \
-  --output-json ../proofs/onchain_report.json \
-  --output-dir ../proofs/solidity_artifacts
-```
-
-What this does:
-- compiles `contracts/Verifier.sol` with `solc`,
-- deploys it to a local `eth-tester` / `py-evm` chain,
-- uploads the verification key,
-- runs `verifyProofView(...)`,
-- writes a structured report with gas usage and validation status.
-
-The repository test suite now covers this local EVM flow end-to-end.
-
-## Project Structure
+## Folder map
 
 ```
-cuda-zkml/
-├── src/
-│   ├── common.cuh              # CUDA macros, memory helpers, uint256_t
-│   ├── field/                   # BN254 finite field arithmetic
-│   │   ├── fp.cuh/cu           # Fp (254-bit prime field) + Fr (scalar field)
-│   │   ├── fp2.cuh             # Fp2 = Fp[u]/(u²+1) extension
-│   │   ├── fp6.cuh             # Fp6 = Fp2[v]/(v³-ξ) extension
-│   │   ├── fp12.cuh            # Fp12 = Fp6[w]/(w²-v), Frobenius, final exp
-│   │   ├── montgomery.cuh      # CIOS Montgomery mul (PTX + MSVC intrinsics)
-│   │   └── uint128_compat.cuh  # Portable 128-bit ops (MSVC / GCC / device)
-│   ├── curve/                   # Elliptic curve operations
-│   │   ├── g1.cuh/cu           # G1 Jacobian (BN254 y²=x³+3)
-│   │   ├── g2.cuh/cu           # G2 Jacobian (twist curve over Fp2)
-│   │   └── pairing.cuh         # Optimal Ate pairing, Miller loop, final exp
-│   ├── ntt/                     # NTT with twiddle precomputation
-│   │   └── ntt.cuh/cu          # Gentleman-Sande DIF + cooperative groups
-│   ├── msm/                     # Pippenger MSM with warp-level primitives
-│   │   └── msm.cuh/cu          # G1 + G2 MSM, streaming for >1M points
-│   ├── nn/                      # Neural network inference in finite field
-│   │   ├── quantize.cuh        # Float → Fp quantization (symmetric int8/16)
-│   │   ├── layers.cuh/cu       # MatMul, ReLU, Softmax in Fp
-│   │   └── inference.cuh/cu    # Full model inference + trace recording
-│   ├── prover/                  # Groth16 zk-SNARK prover
-│   │   ├── circuit.cuh         # R1CS constraint system + CircuitBuilder
-│   │   ├── witness.cuh         # Witness generation from inference trace
-│   │   └── groth16.cuh/cu      # QAP, setup, prove, KZG, batch, aggregate
-│   ├── verifier/                # Proof verification + file I/O
-│   │   └── verifier.cuh/cu     # Proof/VK serialization
-│   └── cli/                     # CLI tools
-│       ├── prove.cu             # zkml-prove (--demo, --model, --input)
-│       └── verify.cu            # zkml-verify (--vk, --proof, --public-inputs)
-├── contracts/
-│   └── Verifier.sol             # Solidity Groth16 verifier (BN254 precompiles)
-├── python/                      # Python API + benchmarks
-│   ├── zkml/                    # Python package (model.py, prover.py)
-│   │   └── artifacts.py         # proof/vk parsing + Solidity export helpers
-│   ├── quantize.py              # Standalone quantization script
-│   ├── export_solidity.py       # CLI exporter for Solidity/Ethers calldata
-│   ├── onchain_verify.py        # Local EVM deploy + verify harness
-│   ├── run_ezkl_benchmark.py    # Live EZKL benchmark helper
-│   ├── run_orion_benchmark.py   # Orion toolchain probe / adapter
-│   └── benchmark.py             # Measured local benchmarks + live/external baselines
-├── benchmarks/
-│   ├── baselines/               # Optional EZKL/Orion measured results
-│   │   └── README.md            # External baseline JSON schema
-│   └── results/                 # Generated JSON + markdown benchmark outputs
-├── tests/                       # Test suite (CUDA + Python)
-│   ├── test_field.cu            # BN254 Fp/Fp2/Fp6/Fp12 tests
-│   ├── test_curve.cu            # G1/G2 curve operations
-│   ├── test_ntt.cu              # NTT correctness
-│   ├── test_msm.cu              # Pippenger MSM tests
-│   ├── test_nn.py               # Quantization + NN layer tests
-│   ├── test_e2e.py              # End-to-end pipeline
-│   ├── test_solidity_export.py  # Solidity artifact export coverage
-│   └── test_onchain_workflow.py # Local EVM verification workflow
-├── tests/host/                 # no-GPU tests: gadgets, statement v2, MPC ceremony
-└── README.md
+CUDA-zkML-PCANI-SingleProof-2026/
+  README.md, LICENSE (MIT), FUTURE_WORK_ROADMAP.md (status + what remains)
+  SUMMARY_FOR_SUPERVISOR_GR.txt   plain-language summary of the whole study (Greek)
+  src/
+    field/, curve/, msm/, ntt/    BN254 arithmetic, pairing, Pippenger MSM, NTT (CUDA)
+    nn/                           quantized inference incl. RELU_EXACT and CONV2D
+    prover/                       Groth16, R1CS, v1 witness, statement v2, gadgets, Poseidon, r1cs export,
+                                  MPC ceremony
+    cli/                          zkml-prove, zkml-verify, zkml-ceremony
+  contracts/                      Verifier.sol, PCANIContextVerifier.sol
+  python/zkml/                    PCANI protocols v1/v2, statement v2, Poseidon reference, model tools
+  python/                         experiment drivers, trained-model exporter, phase-1/2 end-to-end driver
+  tests/                          CUDA tests, Python tests, underconstraint checker
+  tests/host/                     no-GPU tests: gadgets, statement v2, MPC ceremony (+ CUDA shim)
+  docs/                           threat model, protocol v2, GPU validation results, technical details
+  results/gpu_validation_2026/    T4 run: per-path artifacts, proofs, route bundles, summaries
+  benchmarks/                     benchmark results and baselines
+  PCANI_Colab_*.ipynb             Final validation (done), Gate F, Phase 1-2 end-to-end
 ```
 
-## Testing
+`docs/TECHNICAL_DETAILS.md` has build options, the CLI and Python API, and implementation details (MSM, NTT,
+pairing, Solidity export).
 
-```bash
-# Build and run all tests
-cd build
-make -j$(nproc)
-ctest --verbose
+## Reproducing
 
-# Individual tests
-./test_field    # BN254 field arithmetic
-./test_curve    # Elliptic curve operations
-./test_ntt      # Number Theoretic Transform
-./test_msm      # Multi-Scalar Multiplication
+| result | command | where |
+|---|---|---|
+| 1 | `PCANI_Colab_Final_Validation.ipynb` | Colab GPU |
+| 2–6 (logic) | `tests/host/run_host_tests.sh` and `pytest` | any CPU, no CUDA |
+| 2–6 (GPU, end to end) | `PCANI_Colab_Phase12.ipynb` (runs `scripts/run_phase12.sh`) | Colab GPU, ~1–2 h |
+| replication | `PCANI_Colab_GateF.ipynb` | Colab GPU (not T4), ~2–3 h |
 
-# Python tests
-cd ../tests
-python test_nn.py       # Quantization and NN tests
-python test_e2e.py      # End-to-end pipeline
-python test_solidity_export.py  # Solidity artifact export
-```
+Build locally: `cmake -S . -B build -DCMAKE_CUDA_ARCHITECTURES=<sm>` and `cmake --build build`; then `ctest --test-dir build`.
 
-### Faster Dev Loop (recommended while editing `groth16.cu`)
+## Status and what remains
 
-`groth16.cu` is the heaviest CUDA translation unit in this repo. For faster local iteration:
+Roadmap Phases 1 and 2 are implemented. What remains is only runs and external work (`FUTURE_WORK_ROADMAP.md`):
 
-```powershell
-# Configure once (Windows)
-cmake -S . -B build-fast -G "Visual Studio 17 2022" `
-       -DZKML_FAST_DEBUG_LOOP=ON `
-       -DZKML_FAST_ITERATION=ON `
-       -DZKML_ULTRA_FAST_COMPILE=ON `
-       -DZKML_NVCC_THREADS=1 `
-       -DZKML_NVCC_SPLIT_COMPILE_THREADS=1
+- **Runs:** `PCANI_Colab_Phase12.ipynb` (GPU end to end for statement v2) and `PCANI_Colab_GateF.ipynb`
+  (second GPU, MNIST, matched EZKL).
+- **External:** a ceremony with real participants, a cryptographer's review and a systematic novelty audit.
 
-# Rebuild only what you need
-cmake --build build-fast --config Release --target zkml_prover -- /m:1
-cmake --build build-fast --config Release --target test_groth16 -- /m:1
-```
+## Protocol discipline
 
-Notes:
-- `ZKML_ULTRA_FAST_COMPILE=ON` uses lower optimization and disables RDC for prover/CLI targets to reduce compile latency.
-- `ZKML_NVCC_THREADS` and `ZKML_NVCC_SPLIT_COMPILE_THREADS` cap compiler parallelism (`1` is safest on thermally-limited laptops).
-- `tests/test_ntt.cu` and `tests/test_msm.cu` now skip heavy benchmarks by default.
-- To run benchmarks explicitly:
-       - `test_ntt --bench`
-       - `test_msm --bench`
-       - or set `ZKML_RUN_BENCHMARKS=1`
-- If you already have a working build directory with an explicit CUDA toolset, reuse the same toolset in `build-fast`.
-- Keep `/m:1` for low-stress builds on laptops; increase only if the machine is stable.
+The T4 experiment ran fail-closed:
+- exact agreement of CUDA and Python scores;
+- native verification of every proof;
+- pinned verification-key digests and model tags.
 
-## Benchmarks
+Protocol v1 was rejected on those measured numbers and is kept, not hidden. Protocol v2 reuses the same prover
+medians and the frozen routing trace.
 
-```bash
-cd python
-python benchmark.py --runs 1 --live-ezkl --live-orion
-```
+The v1 statement path is unchanged by the v2 work, so the published results reproduce. Reference values for
+the v2 work come from independent code paths:
+- the Python Poseidon (checked against the circomlib vector);
+- the Python exact-integer inference;
+- a pure-Python R1CS checker.
 
-The benchmark runner now measures:
-- local `zkml-prove --demo` timing on the current machine,
-- local tiny-transformer `zkml-prove` timing on the current machine,
-- local CPU float32 and quantized-field inference baselines,
-- live EZKL benchmark stages via `python/run_ezkl_benchmark.py`,
-- live Orion toolchain probing via `python/run_orion_benchmark.py`,
-- or optional EZKL / Orion rows loaded from `benchmarks/baselines/*.json`.
+The draft paper was removed; it will be rewritten after the GPU runs.
 
-Current benchmark status on the tested GTX 1650 laptop:
-- CUDA-zkML local demo is fully measured and working.
-- EZKL now has a measured live row from WSL Ubuntu on the same machine.
-- The current native Windows EZKL wheel still panics during `setup(...)`, so the
-  repository treats WSL/Linux as the reliable EZKL path on this setup.
-- Orion now has a measured WSL Ubuntu row from a passing archived `relu_i8`
-  filtered test target.
-- The full archived Orion workspace test suite still has upstream failures on
-  this setup, so the repository uses a passing filtered target instead of the
-  failing full-suite run.
+## Citation and license
 
-Generated benchmark artifacts:
-- `benchmarks/results/benchmark_results.json`
-- `benchmarks/results/benchmark_results.md`
-- `benchmarks/results/onchain_report.json`
-- optional external baselines can be provided as `benchmarks/baselines/ezkl.json`
-  and `benchmarks/baselines/orion.json`
-
-Latest local measured snapshot on the tested laptop (historical engineering measurements; do not infer cross-system speedup unless the workload IDs/model/precision are matched):
-
-| System | Status | Inference (ms) | Setup (ms) | Prove (ms) | Verify (ms) | Proof Size |
-|--------|--------|----------------|------------|------------|-------------|------------|
-| CUDA-zkML (GTX 1650) | measured | 53.66 | 1381.30 | 3982.29 | 225.18 | 256 B |
-| CUDA-zkML Tiny Transformer (GTX 1650) | measured | 44.84 | 174.79 | 207.14 | 263.35 | 256 B |
-| EZKL (WSL Ubuntu) | measured | 5.07 | 1547.85 | 1812.74 | 13.26 | 18209 B |
-| Orion (WSL filtered) | measured | N/A | N/A | 456930.00 | N/A | N/A |
-
-The local on-chain report under `benchmarks/results/onchain_report.json` currently
-shows a successful local EVM verification with:
-- `status = verified`
-- `deploy_gas_used = 2115563`
-- `set_vk_gas_used = 894575`
-
-## Key Technical Details
-
-### BN254 Field Arithmetic
-- Montgomery multiplication using CIOS algorithm with PTX carry-chain assembly (sm_75)
-- Portable host code: MSVC `_umul128`/`_addcarry_u64` intrinsics on Windows, `__int128` on Linux
-- Full field tower: Fp → Fp2 → Fp6 → Fp12 with Frobenius endomorphisms
-- 4 × uint64 limbs, 254-bit prime field
-
-### Optimal Ate Pairing
-- Complete Miller loop with proper doubling/addition steps and line function evaluation
-- Q1/Q2 Frobenius correction steps for BN254 curve
-- Hard part of final exponentiation using BN254 parameter x = 4965661367071055538
-- Sparse Fp12 multiplication (`mul_by_024`) for efficient Miller loop
-
-### Groth16 Prover
-- Full R1CS → QAP transformation with Lagrange interpolation at τ
-- Quotient polynomial h(x) via GPU NTT (polynomial multiply + divide)
-- KZG polynomial commitment scheme (commit via MSM, open via synthetic division)
-- Proper trusted setup with batch inversion for Lagrange denominators
-- Real pairing-based verification: e(-A,B)·e(α,β)·e(vk_x,γ)·e(C,δ) == 1
-- Hardened v3 proving-key serialization: group elements only, no toxic scalar exponents
-- Groth16 `C` construction corrected for the repository's unblinded-`B1` convention (`C = L + H + s*A + r*B1`)
-- Safe multi-proof wrapper that verifies proofs independently
-- Naive linear-combination aggregation deliberately disabled pending a formally specified aggregation protocol
-
-### MSM (Pippenger)
-- Window-based bucket accumulation with configurable window size
-- Cooperative groups: warp-level ballot for intra-warp collision detection
-- Streaming mode for > 1M points (fits in 4GB VRAM)
-- Warp-parallel bucket reduction with cross-stripe combination
-
-### NTT
-- Precomputed twiddle factors (eliminates per-thread exponentiation)
-- Out-of-place with ping-pong buffers
-- Cooperative groups: warp.sync() for small strides, block.sync() for large
-- Shared memory optimization for intra-block stages
-- Maximum size 2^24 (512M elements)
-
-### Neural Network Inference
-- Full inference in BN254 base field (ZK-provable)
-- Symmetric int8/int16 quantization with scale tracking
-- Polynomial ReLU approximation (degree 3, Horner's method)
-- Taylor-series softmax approximation with field inversion
-- Inference trace recording for automatic witness generation
-- Feedforward architecture sidecars (`.arch.json`) for ONNX-converted models
-- CIFAR-10 flattened MLP path through the same prover/verifier flow
-- Tiny transformer self-attention path through the same prover/verifier flow
-- Stacked multi-head self-attention path through architecture sidecars
-
-### Proof-Cost-Aware Adaptive Inference (PCANI research branch)
-- `python/zkml/adaptive.py` calibrates deterministic routing thresholds under an accuracy-loss budget and supports both protocol-v1 `proof_chain` and protocol-v2 `selected_proof` cost semantics.
-- `zkml-prove --pcani-statement --integer-model --integer-input` builds an exact-model statement with model parameters fixed as R1CS coefficients.
-- `python/zkml/pcani_protocol.py` preserves the reproducible protocol-v1 proof-chain verifier.
-- `python/zkml/pcani_protocol_v2.py` and `python/pcani_verify_single.py` implement the protocol-v2 **single selected-proof route certificate**. The selected path must have a valid model-specific proof and, unless it is the full fallback, its proof-bound margin must clear the calibrated threshold.
-- `python/pcani_single_proof_finalize.py` re-analyzes a completed GPU run without inventing timings: it uses the measured standalone path prover medians and stored held-out logits to compute protocol-v2 cost/accuracy.
-- The completed 2026 T4 run measured median prover times of 1475.75/1628.66/1781.65/1884.02 ms for p16/p48/p96/p160. Protocol v1's cumulative-chain expected cost was 2899.95 ms (worse than p160). Protocol v2's selected-proof expected cost is 1602.51 ms, **14.94% lower than the static p160 proof**, at 96.11% held-out accuracy versus 96.94% for p160 (0.83 percentage-point drop).
-- Including measured sequential inference medians, the derived end-to-end estimate is 1737.06 ms versus 1958.48 ms for static p160, an **11.31% reduction**. This end-to-end figure is derived from measured component medians, not from a fresh monolithic protocol-v2 timing run.
-- Inputs and route scores are public; private-input/model-hiding extensions are not claimed.
-
-### Solidity Verifier
-- On-chain Groth16 verification using EVM BN254 precompiles
-- ecAdd (0x06), ecMul (0x07), ecPairing (0x08)
-- Local `eth-tester` deployment and verification harness included
-
-
-
-## 2026 Research / Security Status
-
-The repository is split conceptually into two layers:
-
-1. **Hardened Groth16/CUDA foundation.** Persisted proving keys use group-only serialization; toxic setup scalars are not saved; legacy secret-bearing keys fail closed; unsupported linear aggregation is disabled; the Groth16 `C` construction matches the prover's unblinded-`B1` convention; and signed integer semantics are preserved when mapping network values from BN254 `Fp` into `Fr`.
-2. **PCANI algorithmic/protocol layer.** Protocol v1 is retained as the negative baseline discovered by the real GPU run. Protocol v2 uses a single selected-path proof certificate and measured selected-proof cost semantics.
-
-### Completed NVIDIA validation
-
-A Colab T4 run completed successfully after the fail-closed correctness checks exposed and fixed two implementation bugs (the Groth16 `C` convention and signed `Fp -> Fr` conversion). The final run verified exact CUDA/Python outputs, native Groth16 proofs, model-specific key pinning, proof-bound routing evidence, and 5 repeated prover measurements per path. Raw artifacts are stored under `results/gpu_validation_2026/`.
-
-The result is deliberately reported in two stages:
-
-- **Protocol v1 proof chain:** 96.11% adaptive accuracy, 0.83 pp below p160, but 2899.95 ms expected proof cost versus 1884.02 ms static; hypothesis rejected for v1.
-- **Protocol v2 single selected proof:** using the same measured per-path prover medians and held-out routing decisions, expected proof cost is 1602.51 ms, a 14.94% reduction. Representative chosen-path proofs were already native-verified in the GPU run and satisfy their selected-path acceptance predicates.
-
-See `docs/GPU_VALIDATION_RESULTS_2026.md`, `docs/PCANI_PROTOCOL_V2.md`, `docs/RESEARCH_STATUS_2026.md`, and `docs/NOVELTY_GATE_2026.md`. A systematic literature/patent audit and broader multi-GPU/multi-benchmark replication are still required before claiming established novelty or production security.
-
-### Statement v2 (roadmap phases 1-2, 2026-10)
-
-`zkml-prove --statement-v2` adds, without touching the v1 path above:
-
-- context-bound proofs (anti-replay);
-- exact in-circuit ReLU with range proofs (trained models);
-- native sparse `CONV2D`;
-- Poseidon-committed private model and private input, with in-circuit routing;
-- batching;
-- iden3 `.r1cs`/`.wtns` export.
-
-`zkml-ceremony` runs a Groth16 phase-2 MPC. Without CUDA these pieces are tested by
-`tests/host/run_host_tests.sh` and `pytest`. On a GPU, `PCANI_Colab_Phase12.ipynb`
-runs everything end to end. See `FUTURE_WORK_ROADMAP.md` and `docs/THREAT_MODEL.md`.
+George David Tsitlauri, University of Thessaly, 2026. MIT License (`LICENSE`).

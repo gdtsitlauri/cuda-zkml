@@ -53,6 +53,8 @@ struct NNModel {
         int seq_len;
         int hidden_size;
         int num_heads;
+        ReLUExactParams relu_exact{};   // RELU_EXACT
+        Conv2DParams conv{};            // CONV2D
     };
 
     struct Layer {
@@ -66,6 +68,10 @@ struct NNModel {
 
         // For RELU_APPROX
         ReLUApproxParams relu_params;
+
+        // For RELU_EXACT / CONV2D (CONV2D reuses weights/bias)
+        ReLUExactParams relu_exact;
+        Conv2DParams conv;
 
         // For SOFTMAX_APPROX
         SoftmaxApproxParams softmax_params;
@@ -106,6 +112,27 @@ struct NNModel {
         layer.relu_params.c2 = Fp::from_uint(1);
         layer.relu_params.c3 = Fp::zero();
         layer.relu_params.scale = Fp::from_uint(1);
+        return layer;
+    }
+
+    static Layer make_relu_exact_layer(int size, int bits, int shift) {
+        Layer layer;
+        layer.type = LayerType::RELU_EXACT;
+        layer.in_size = size;
+        layer.out_size = size;
+        layer.relu_exact.bits = bits;
+        layer.relu_exact.shift = shift;
+        return layer;
+    }
+
+    static Layer make_conv2d_layer(const Conv2DParams& c) {
+        Layer layer;
+        layer.type = LayerType::CONV2D;
+        layer.conv = c;
+        layer.in_size = c.in_size();
+        layer.out_size = c.out_size();
+        layer.weights.resize(c.weight_count());
+        layer.bias.resize((size_t)c.out_c);
         return layer;
     }
 
@@ -154,6 +181,11 @@ struct NNModel {
                 model.layers.push_back(make_linear_layer(spec.in_size, spec.out_size));
             } else if (spec.type == LayerType::RELU_APPROX) {
                 model.layers.push_back(make_relu_layer(spec.in_size));
+            } else if (spec.type == LayerType::RELU_EXACT) {
+                model.layers.push_back(make_relu_exact_layer(spec.in_size, spec.relu_exact.bits,
+                                                             spec.relu_exact.shift));
+            } else if (spec.type == LayerType::CONV2D) {
+                model.layers.push_back(make_conv2d_layer(spec.conv));
             } else if (spec.type == LayerType::SOFTMAX_APPROX) {
                 model.layers.push_back(make_softmax_layer(spec.in_size));
             } else if (spec.type == LayerType::SELF_ATTENTION) {
@@ -214,9 +246,10 @@ struct NNModel {
     bool load_weights(const float* data, int total_floats) {
         int offset = 0;
         for (auto& layer : layers) {
-            if (layer.type == LayerType::LINEAR) {
-                int num_weights = layer.out_size * layer.in_size;
-                int num_bias = layer.out_size;
+            if (layer.type == LayerType::LINEAR || layer.type == LayerType::CONV2D) {
+                int num_weights = layer.type == LayerType::CONV2D ? (int)layer.conv.weight_count()
+                                                                   : layer.out_size * layer.in_size;
+                int num_bias = layer.type == LayerType::CONV2D ? layer.conv.out_c : layer.out_size;
 
                 if (offset + num_weights + num_bias > total_floats) {
                     fprintf(stderr, "[NN] Error: not enough weight data\n");
@@ -266,6 +299,50 @@ struct NNModel {
         return true;
     }
 
+    // Load exact integer weights/biases.  This path is intended for
+    // reproducible proof benchmarks where the model is trained/exported
+    // directly in the finite-field integer domain, avoiding ambiguous per-layer
+    // float quantization scales.  File order is identical to load_weights().
+    bool load_integer_weights(const int32_t* data, int total_values) {
+        int offset = 0;
+        auto load_block = [&](std::vector<Fp>& dst, int count) -> bool {
+            if (offset + count > total_values) return false;
+            dst.resize((size_t)count);
+            for (int i = 0; i < count; i++) dst[(size_t)i] = int_to_fp(data[offset + i]);
+            offset += count;
+            return true;
+        };
+
+        for (auto& layer : layers) {
+            if (layer.type == LayerType::LINEAR || layer.type == LayerType::CONV2D) {
+                const int nw = layer.type == LayerType::CONV2D ? (int)layer.conv.weight_count()
+                                                                : layer.out_size * layer.in_size;
+                const int nb = layer.type == LayerType::CONV2D ? layer.conv.out_c : layer.out_size;
+                if (!load_block(layer.weights, nw) || !load_block(layer.bias, nb)) {
+                    fprintf(stderr, "[NN] Error: not enough integer weight data\n");
+                    return false;
+                }
+            } else if (layer.type == LayerType::SELF_ATTENTION) {
+                const int hidden = layer.attention_params.hidden_size;
+                const int nm = hidden * hidden;
+                const int nb = hidden;
+                if (!load_block(layer.q_weights, nm) || !load_block(layer.q_bias, nb) ||
+                    !load_block(layer.k_weights, nm) || !load_block(layer.k_bias, nb) ||
+                    !load_block(layer.v_weights, nm) || !load_block(layer.v_bias, nb) ||
+                    !load_block(layer.o_weights, nm) || !load_block(layer.o_bias, nb)) {
+                    fprintf(stderr, "[NN] Error: not enough integer attention weight data\n");
+                    return false;
+                }
+            }
+        }
+        if (offset != total_values) {
+            fprintf(stderr, "[NN] Error: integer model payload has %d trailing values\n",
+                    total_values - offset);
+            return false;
+        }
+        return true;
+    }
+
     // Initialize with random weights (for testing)
     void init_random(unsigned seed = 42) {
         srand(seed);
@@ -311,3 +388,7 @@ std::vector<Fp> run_inference_cpu(const NNModel& model,
                                     int input_size);
 
 } // namespace zkml
+
+// Exact integer layers (RELU_EXACT, CONV2D): host implementation, used by both
+// inference paths; proving (MSM/NTT) stays on the GPU.
+#include "nn/exact_layers.cuh"

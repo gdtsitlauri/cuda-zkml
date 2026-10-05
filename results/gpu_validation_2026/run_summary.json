@@ -1,0 +1,457 @@
+{
+  "benchmark": {
+    "activation": "h=z^2+64z+64",
+    "arithmetic": "int32 parameters / integer input / BN254 field embedding; no float quantization",
+    "benchmark": "sklearn-digits exact-integer PCANI",
+    "dataset": {
+      "calibration": 359,
+      "test": 360,
+      "train": 1078
+    },
+    "paths": [
+      {
+        "calibration_accuracy": 0.8440111420612814,
+        "fit_integer_scale": 92668905.60573342,
+        "model_sha256": "f5d371c970241dc33a2e580fdd19fdc2e88fdcd6d11b5fddbc749cd2fb38ef84",
+        "name": "p16",
+        "parameter_count": 1210,
+        "test_accuracy": 0.7944444444444444,
+        "width": 16
+      },
+      {
+        "calibration_accuracy": 0.9331476323119777,
+        "fit_integer_scale": 54456282.44093306,
+        "model_sha256": "9d06f3dad3513b97cf144d226e6881992e30063a8d7d01de9ef9355d290e873b",
+        "name": "p48",
+        "parameter_count": 3610,
+        "test_accuracy": 0.9361111111111111,
+        "width": 48
+      },
+      {
+        "calibration_accuracy": 0.9610027855153204,
+        "fit_integer_scale": 108196442.44629163,
+        "model_sha256": "aebcf3935272e1cdedbb394c5ae9afa952390a4a6519702dcc34be1ebe22acdc",
+        "name": "p96",
+        "parameter_count": 7210,
+        "test_accuracy": 0.9638888888888889,
+        "width": 96
+      },
+      {
+        "calibration_accuracy": 0.9637883008356546,
+        "fit_integer_scale": 179471782.99275345,
+        "model_sha256": "625fc8fed683794d5c8d55631485eeba3b704c854564999558d7fb4cf98c32ff",
+        "name": "p160",
+        "parameter_count": 12010,
+        "test_accuracy": 0.9694444444444444,
+        "width": 160
+      }
+    ],
+    "seed": 2026
+  },
+  "correctness_gates": {
+    "cuda_python_exact_logits": true,
+    "model_specific_vk_pinned": true,
+    "native_groth16_verify": true,
+    "route_rule_verified_from_proof_bound_public_outputs": true,
+    "same_public_input_cross_proof_linkage": true
+  },
+  "hypothesis_supported_on_this_run": false,
+  "pcani": {
+    "benchmark": "sklearn-digits exact-integer PCANI",
+    "cost_semantics": "PathSpec.proof_cost is standalone prover time. Adaptive route cost is cumulative over every attempted proof in the verified proof chain.",
+    "evidence": "real_dataset_and_measured_gpu_proof_costs",
+    "measured_proof_cost_ms": {
+      "p16": 1475.75,
+      "p160": 1884.02,
+      "p48": 1628.66,
+      "p96": 1781.65
+    },
+    "policy": {
+      "calibration_accuracy": 0.9637883008356546,
+      "confidence_kind": "margin",
+      "expected_proof_cost": 2817.694011142061,
+      "full_path_accuracy": 0.9637883008356546,
+      "max_accuracy_drop": 0.0,
+      "paths": [
+        {
+          "model_digest": "f5d371c970241dc33a2e580fdd19fdc2e88fdcd6d11b5fddbc749cd2fb38ef84",
+          "name": "p16",
+          "proof_cost": 1475.75,
+          "workload_id": "digits-exact-integer"
+        },
+        {
+          "model_digest": "9d06f3dad3513b97cf144d226e6881992e30063a8d7d01de9ef9355d290e873b",
+          "name": "p48",
+          "proof_cost": 1628.66,
+          "workload_id": "digits-exact-integer"
+        },
+        {
+          "model_digest": "aebcf3935272e1cdedbb394c5ae9afa952390a4a6519702dcc34be1ebe22acdc",
+          "name": "p96",
+          "proof_cost": 1781.65,
+          "workload_id": "digits-exact-integer"
+        },
+        {
+          "model_digest": "625fc8fed683794d5c8d55631485eeba3b704c854564999558d7fb4cf98c32ff",
+          "name": "p160",
+          "proof_cost": 1884.02,
+          "workload_id": "digits-exact-integer"
+        }
+      ],
+      "policy_digest": "e62f5a7408e278520c41eea3135a8e255820bdcdc7ba4be771b4fe23b65ccfe9",
+      "thresholds": [
+        350937070.4,
+        254501196.0,
+        237925533.0
+      ]
+    },
+    "standalone_path_accuracy": {
+      "p16": 0.7944444444444444,
+      "p160": 0.9694444444444444,
+      "p48": 0.9361111111111111,
+      "p96": 0.9638888888888889
+    },
+    "test": {
+      "accuracy": 0.9611111111111111,
+      "accuracy_drop": 0.008333333333333304,
+      "expected_proof_cost": 2899.9466388888895,
+      "full_path_accuracy": 0.9694444444444444,
+      "full_path_cost": 1884.02,
+      "proof_cost_savings": -0.5392334682693865,
+      "route_counts": {
+        "p16": 146,
+        "p160": 20,
+        "p48": 143,
+        "p96": 51
+      }
+    }
+  },
+  "predeclared_criteria": {
+    "calibration_max_accuracy_drop": 0.0,
+    "heldout_max_accuracy_drop": 0.01,
+    "require_positive_measured_proof_cost_savings": true
+  },
+  "privacy_scope": {
+    "input": "public in protocol v1",
+    "model": "exactly bound by fixed circuit/model-specific key; model-hiding is not claimed",
+    "routing": "public threshold decision over proof-bound scores; not a hidden in-circuit comparison"
+  },
+  "proof_chain_bundle_reports": [
+    {
+      "attempts": 1,
+      "chosen_path": "p16",
+      "errors": [],
+      "input_size": 64,
+      "label": 0,
+      "native_verification": {
+        "p16": true
+      },
+      "policy_route_index": 0,
+      "route_margins": {
+        "p16": 461718627
+      },
+      "sample_index": 1,
+      "valid": true
+    },
+    {
+      "attempts": 2,
+      "chosen_path": "p48",
+      "errors": [],
+      "input_size": 64,
+      "label": 4,
+      "native_verification": {
+        "p16": true,
+        "p48": true
+      },
+      "policy_route_index": 1,
+      "route_margins": {
+        "p16": 242340873,
+        "p48": 328999765
+      },
+      "sample_index": 0,
+      "valid": true
+    },
+    {
+      "attempts": 3,
+      "chosen_path": "p96",
+      "errors": [],
+      "input_size": 64,
+      "label": 7,
+      "native_verification": {
+        "p16": true,
+        "p48": true,
+        "p96": true
+      },
+      "policy_route_index": 2,
+      "route_margins": {
+        "p16": 215469089,
+        "p48": 120498130,
+        "p96": 533823709
+      },
+      "sample_index": 12,
+      "valid": true
+    },
+    {
+      "attempts": 4,
+      "chosen_path": "p160",
+      "errors": [],
+      "input_size": 64,
+      "label": 9,
+      "native_verification": {
+        "p16": true,
+        "p160": true,
+        "p48": true,
+        "p96": true
+      },
+      "policy_route_index": 3,
+      "route_margins": {
+        "p16": 73103461,
+        "p160": 686610383,
+        "p48": 25709364,
+        "p96": 170835746
+      },
+      "sample_index": 13,
+      "valid": true
+    }
+  ],
+  "proof_costs": {
+    "p16": {
+      "cuda_python_exact_output_match": true,
+      "max_prove_ms": 1502.36,
+      "median_inference_ms": 72.09,
+      "median_prove_ms": 1475.75,
+      "median_verify_ms": 28.45,
+      "min_prove_ms": 1435.11,
+      "model_sha256": "f5d371c970241dc33a2e580fdd19fdc2e88fdcd6d11b5fddbc749cd2fb38ef84",
+      "model_tag64": "0xa23f3b65f03d7761",
+      "p95_prove_ms": 1498.658,
+      "proof_size_bytes": 256,
+      "r1cs_constraints": 75,
+      "r1cs_variables": 140,
+      "raw_repeats": [
+        {
+          "inference_ms": 72.75,
+          "model_tag64": "0xa23f3b65f03d7761",
+          "proof_size_bytes": 256,
+          "prove_ms": 1475.75,
+          "setup_ms": 0.0,
+          "verify_ms": 40.63
+        },
+        {
+          "inference_ms": 72.09,
+          "model_tag64": "0xa23f3b65f03d7761",
+          "proof_size_bytes": 256,
+          "prove_ms": 1502.36,
+          "setup_ms": 0.0,
+          "verify_ms": 28.45
+        },
+        {
+          "inference_ms": 71.65,
+          "model_tag64": "0xa23f3b65f03d7761",
+          "proof_size_bytes": 256,
+          "prove_ms": 1473.39,
+          "setup_ms": 0.0,
+          "verify_ms": 27.61
+        },
+        {
+          "inference_ms": 76.87,
+          "model_tag64": "0xa23f3b65f03d7761",
+          "proof_size_bytes": 256,
+          "prove_ms": 1435.11,
+          "setup_ms": 0.0,
+          "verify_ms": 27.18
+        },
+        {
+          "inference_ms": 71.8,
+          "model_tag64": "0xa23f3b65f03d7761",
+          "proof_size_bytes": 256,
+          "prove_ms": 1483.85,
+          "setup_ms": 0.0,
+          "verify_ms": 58.6
+        }
+      ],
+      "repeats": 5,
+      "setup_ms": 419.16,
+      "vk_sha256": "e78ef3788138483d7beb442ac078017ac375794b366d0ffcc16630aa0f9ebb43"
+    },
+    "p160": {
+      "cuda_python_exact_output_match": true,
+      "max_prove_ms": 1906.15,
+      "median_inference_ms": 74.46,
+      "median_prove_ms": 1884.02,
+      "median_verify_ms": 28.12,
+      "min_prove_ms": 1852.67,
+      "model_sha256": "625fc8fed683794d5c8d55631485eeba3b704c854564999558d7fb4cf98c32ff",
+      "model_tag64": "0x2378993cfdcf33c0",
+      "p95_prove_ms": 1904.766,
+      "proof_size_bytes": 256,
+      "r1cs_constraints": 651,
+      "r1cs_variables": 716,
+      "raw_repeats": [
+        {
+          "inference_ms": 73.69,
+          "model_tag64": "0x2378993cfdcf33c0",
+          "proof_size_bytes": 256,
+          "prove_ms": 1906.15,
+          "setup_ms": 0.0,
+          "verify_ms": 52.63
+        },
+        {
+          "inference_ms": 101.63,
+          "model_tag64": "0x2378993cfdcf33c0",
+          "proof_size_bytes": 256,
+          "prove_ms": 1877.28,
+          "setup_ms": 0.0,
+          "verify_ms": 28.93
+        },
+        {
+          "inference_ms": 74.46,
+          "model_tag64": "0x2378993cfdcf33c0",
+          "proof_size_bytes": 256,
+          "prove_ms": 1852.67,
+          "setup_ms": 0.0,
+          "verify_ms": 27.54
+        },
+        {
+          "inference_ms": 78.5,
+          "model_tag64": "0x2378993cfdcf33c0",
+          "proof_size_bytes": 256,
+          "prove_ms": 1884.02,
+          "setup_ms": 0.0,
+          "verify_ms": 28.12
+        },
+        {
+          "inference_ms": 72.69,
+          "model_tag64": "0x2378993cfdcf33c0",
+          "proof_size_bytes": 256,
+          "prove_ms": 1899.23,
+          "setup_ms": 0.0,
+          "verify_ms": 27.8
+        }
+      ],
+      "repeats": 5,
+      "setup_ms": 2959.43,
+      "vk_sha256": "eea3cf351c5bfc306197cdceaf36922749dfb26586a9ef66d4d27c62e26aad5d"
+    },
+    "p48": {
+      "cuda_python_exact_output_match": true,
+      "max_prove_ms": 1640.21,
+      "median_inference_ms": 73.36,
+      "median_prove_ms": 1628.66,
+      "median_verify_ms": 27.64,
+      "min_prove_ms": 1567.65,
+      "model_sha256": "9d06f3dad3513b97cf144d226e6881992e30063a8d7d01de9ef9355d290e873b",
+      "model_tag64": "0xdf94d7b528090037",
+      "p95_prove_ms": 1639.506,
+      "proof_size_bytes": 256,
+      "r1cs_constraints": 203,
+      "r1cs_variables": 268,
+      "raw_repeats": [
+        {
+          "inference_ms": 70.75,
+          "model_tag64": "0xdf94d7b528090037",
+          "proof_size_bytes": 256,
+          "prove_ms": 1640.21,
+          "setup_ms": 0.0,
+          "verify_ms": 27.14
+        },
+        {
+          "inference_ms": 70.92,
+          "model_tag64": "0xdf94d7b528090037",
+          "proof_size_bytes": 256,
+          "prove_ms": 1598.58,
+          "setup_ms": 0.0,
+          "verify_ms": 27.45
+        },
+        {
+          "inference_ms": 84.52,
+          "model_tag64": "0xdf94d7b528090037",
+          "proof_size_bytes": 256,
+          "prove_ms": 1567.65,
+          "setup_ms": 0.0,
+          "verify_ms": 28.38
+        },
+        {
+          "inference_ms": 73.36,
+          "model_tag64": "0xdf94d7b528090037",
+          "proof_size_bytes": 256,
+          "prove_ms": 1628.66,
+          "setup_ms": 0.0,
+          "verify_ms": 48.36
+        },
+        {
+          "inference_ms": 107.14,
+          "model_tag64": "0xdf94d7b528090037",
+          "proof_size_bytes": 256,
+          "prove_ms": 1636.69,
+          "setup_ms": 0.0,
+          "verify_ms": 27.64
+        }
+      ],
+      "repeats": 5,
+      "setup_ms": 1299.25,
+      "vk_sha256": "3d2bc4a3cd1fce29a0b28098e908e91dcbe877d7c3acfb96b6ab1e4cba8ff11d"
+    },
+    "p96": {
+      "cuda_python_exact_output_match": true,
+      "max_prove_ms": 1838.47,
+      "median_inference_ms": 74.65,
+      "median_prove_ms": 1781.65,
+      "median_verify_ms": 28.56,
+      "min_prove_ms": 1766.79,
+      "model_sha256": "aebcf3935272e1cdedbb394c5ae9afa952390a4a6519702dcc34be1ebe22acdc",
+      "model_tag64": "0xd9319a872ce5a140",
+      "p95_prove_ms": 1830.744,
+      "proof_size_bytes": 256,
+      "r1cs_constraints": 395,
+      "r1cs_variables": 460,
+      "raw_repeats": [
+        {
+          "inference_ms": 81.98,
+          "model_tag64": "0xd9319a872ce5a140",
+          "proof_size_bytes": 256,
+          "prove_ms": 1766.79,
+          "setup_ms": 0.0,
+          "verify_ms": 27.95
+        },
+        {
+          "inference_ms": 71.85,
+          "model_tag64": "0xd9319a872ce5a140",
+          "proof_size_bytes": 256,
+          "prove_ms": 1769.67,
+          "setup_ms": 0.0,
+          "verify_ms": 28.27
+        },
+        {
+          "inference_ms": 74.65,
+          "model_tag64": "0xd9319a872ce5a140",
+          "proof_size_bytes": 256,
+          "prove_ms": 1799.84,
+          "setup_ms": 0.0,
+          "verify_ms": 53.12
+        },
+        {
+          "inference_ms": 102.56,
+          "model_tag64": "0xd9319a872ce5a140",
+          "proof_size_bytes": 256,
+          "prove_ms": 1838.47,
+          "setup_ms": 0.0,
+          "verify_ms": 28.56
+        },
+        {
+          "inference_ms": 74.08,
+          "model_tag64": "0xd9319a872ce5a140",
+          "proof_size_bytes": 256,
+          "prove_ms": 1781.65,
+          "setup_ms": 0.0,
+          "verify_ms": 29.05
+        }
+      ],
+      "repeats": 5,
+      "setup_ms": 1735.01,
+      "vk_sha256": "7d1cd012ebf13db7fd097f0c9f3a609315279635d850f8389bbcfdbc718df97d"
+    }
+  },
+  "protocol_manifest_sha256": "588fd0a4938aab9093e5b8149d5ccc06fde72d0568093cc0e03d62c4f1d997fa",
+  "status": "completed_gpu_validation_run"
+}

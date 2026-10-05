@@ -1,5 +1,7 @@
 # CUDA-zkML Benchmark Results
 
+> **Comparability warning (2026 hardening):** these are historical engineering measurements from different models/toolchains and are not apples-to-apples. Do not report speedup ratios from this table. Use `benchmarks/COMPARABILITY_PROTOCOL.md` and matched `workload_id` metadata for publication comparisons.
+
 | System | Status | Inference (ms) | Setup (ms) | Prove (ms) | Verify (ms) | Proof Size | Hardware | Note |
 |--------|--------|----------------|------------|------------|-------------|------------|----------|------|
 | CUDA-zkML (GTX 1650) | measured | 53.66 | 1381.30 | 3982.29 | 225.18 | 256 B | NVIDIA GTX 1650 (4GB, SM 7.5) | Measured from zkml-prove --demo on the local machine |

@@ -1,0 +1,49 @@
+{
+  "activation": "h=z^2+64z+64",
+  "arithmetic": "int32 parameters / integer input / BN254 field embedding; no float quantization",
+  "benchmark": "sklearn-digits exact-integer PCANI",
+  "dataset": {
+    "calibration": 359,
+    "test": 360,
+    "train": 1078
+  },
+  "paths": [
+    {
+      "calibration_accuracy": 0.8440111420612814,
+      "fit_integer_scale": 92668905.60573342,
+      "model_sha256": "f5d371c970241dc33a2e580fdd19fdc2e88fdcd6d11b5fddbc749cd2fb38ef84",
+      "name": "p16",
+      "parameter_count": 1210,
+      "test_accuracy": 0.7944444444444444,
+      "width": 16
+    },
+    {
+      "calibration_accuracy": 0.9331476323119777,
+      "fit_integer_scale": 54456282.44093306,
+      "model_sha256": "9d06f3dad3513b97cf144d226e6881992e30063a8d7d01de9ef9355d290e873b",
+      "name": "p48",
+      "parameter_count": 3610,
+      "test_accuracy": 0.9361111111111111,
+      "width": 48
+    },
+    {
+      "calibration_accuracy": 0.9610027855153204,
+      "fit_integer_scale": 108196442.44629163,
+      "model_sha256": "aebcf3935272e1cdedbb394c5ae9afa952390a4a6519702dcc34be1ebe22acdc",
+      "name": "p96",
+      "parameter_count": 7210,
+      "test_accuracy": 0.9638888888888889,
+      "width": 96
+    },
+    {
+      "calibration_accuracy": 0.9637883008356546,
+      "fit_integer_scale": 179471782.99275345,
+      "model_sha256": "625fc8fed683794d5c8d55631485eeba3b704c854564999558d7fb4cf98c32ff",
+      "name": "p160",
+      "parameter_count": 12010,
+      "test_accuracy": 0.9694444444444444,
+      "width": 160
+    }
+  ],
+  "seed": 2026
+}

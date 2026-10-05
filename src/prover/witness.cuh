@@ -90,11 +90,12 @@ inline Witness generate_witness(const NNModel& model,
     const Fr r2 = Fr::r_squared();
 
     auto fp_to_fr = [&](const bn254::Fp& v) -> Fr {
-        uint64_t std_val[4];
-        v.to_standard(std_val);
-        Fr fr_val;
-        Fr::mont_mul_fr(fr_val.val, std_val, r2.val);
-        return fr_val;
+        // Preserve signed integer semantics across Fp and Fr.
+        const int64_t signed_value = static_cast<int64_t>(fp_to_int(v));
+        if (signed_value >= 0) {
+            return Fr::from_uint(static_cast<uint64_t>(signed_value));
+        }
+        return -Fr::from_uint(static_cast<uint64_t>(-signed_value));
     };
 
     // Build witness using the exact same variable allocation order as CircuitBuilder.
@@ -424,6 +425,284 @@ inline Witness generate_witness(const NNModel& model,
     printf("[Witness] Generated witness with %d values (%d public, %d private)\n",
            (int)w.values.size(), w.num_public, w.num_private);
 
+    return w;
+}
+
+// Generate witness for the exact-model PCANI statement.
+//
+// Differences from generate_witness():
+//   * model parameters are fixed circuit coefficients, so no weight/bias
+//     witness variables are allocated;
+//   * one public model tag follows the public outputs;
+//   * when public_input=true the quantized input vector is also part of the
+//     public statement.  This gives the proof-chain verifier an exact linkage
+//     value across candidate paths without relying on an unaudited hash gadget.
+//
+// This mode proves execution of one exact quantized model but intentionally
+// does not hide the model and, when public_input=true, does not hide the input.
+inline Witness generate_fixed_model_witness(const NNModel& model,
+                                             const InferenceTrace& trace,
+                                             const bn254::Fp* input,
+                                             int input_size,
+                                             const Fr& model_tag,
+                                             bool public_input = true) {
+    Witness w;
+    (void)trace;
+    const Fr r2 = Fr::r_squared();
+
+    auto fp_to_fr = [&](const bn254::Fp& v) -> Fr {
+        // Preserve signed integer semantics across Fp and Fr.
+        const int64_t signed_value = static_cast<int64_t>(fp_to_int(v));
+        if (signed_value >= 0) {
+            return Fr::from_uint(static_cast<uint64_t>(signed_value));
+        }
+        return -Fr::from_uint(static_cast<uint64_t>(-signed_value));
+    };
+
+    int next_var = 1;
+    w.values.clear();
+    w.values.push_back(Fr::one());
+    auto alloc_var = [&]() { return next_var++; };
+    auto set_var = [&](int idx, const Fr& val) {
+        if (idx >= (int)w.values.size()) w.values.resize(idx + 1, Fr::zero());
+        w.values[idx] = val;
+    };
+
+    const int public_output_size = circuit_public_output_size(model);
+    std::vector<int> public_output_vars(public_output_size);
+    for (int i = 0; i < public_output_size; i++) public_output_vars[i] = alloc_var();
+
+    const int model_tag_var = alloc_var();
+    set_var(model_tag_var, model_tag);
+
+    std::vector<int> current_vars(input_size);
+    std::vector<Fr> current_vals(input_size);
+    for (int i = 0; i < input_size; i++) {
+        int var_idx = alloc_var();
+        Fr x = fp_to_fr(input[i]);
+        current_vars[i] = var_idx;
+        current_vals[i] = x;
+        set_var(var_idx, x);
+    }
+
+    for (int layer_idx = 0; layer_idx < (int)model.layers.size(); layer_idx++) {
+        const auto& layer = model.layers[layer_idx];
+        if (layer.type == LayerType::LINEAR) {
+            if ((int)current_vals.size() != layer.in_size) {
+                fprintf(stderr, "[Witness/fixed] Linear size mismatch\n");
+                return Witness();
+            }
+            std::vector<int> y_vars;
+            std::vector<Fr> y_vals(layer.out_size, Fr::zero());
+            bool use_public_outputs = is_last_circuit_layer(model, layer_idx) &&
+                                      layer.out_size == public_output_size;
+            if (use_public_outputs) {
+                y_vars = public_output_vars;
+            } else {
+                y_vars.resize(layer.out_size);
+                for (int i = 0; i < layer.out_size; i++) y_vars[i] = alloc_var();
+            }
+            for (int i = 0; i < layer.out_size; i++) {
+                Fr acc = fp_to_fr(layer.bias[i]);
+                for (int j = 0; j < layer.in_size; j++) {
+                    acc = acc + fp_to_fr(layer.weights[(size_t)i * (size_t)layer.in_size + (size_t)j]) *
+                                current_vals[j];
+                }
+                y_vals[i] = acc;
+                set_var(y_vars[i], acc);
+            }
+            current_vars.swap(y_vars);
+            current_vals.swap(y_vals);
+        } else if (layer.type == LayerType::RELU_APPROX) {
+            if ((int)current_vals.size() != layer.in_size) {
+                fprintf(stderr, "[Witness/fixed] ReLU size mismatch\n");
+                return Witness();
+            }
+            std::vector<int> y_vars(layer.in_size);
+            std::vector<Fr> y_vals(layer.in_size, Fr::zero());
+            Fr c0 = fp_to_fr(layer.relu_params.c0);
+            Fr c1 = fp_to_fr(layer.relu_params.c1);
+            Fr c2 = fp_to_fr(layer.relu_params.c2);
+            Fr c3 = fp_to_fr(layer.relu_params.c3);
+            Fr scale = fp_to_fr(layer.relu_params.scale);
+            for (int i = 0; i < layer.in_size; i++) {
+                Fr x = current_vals[i];
+                int y_var = alloc_var();
+                int x2_var = alloc_var();
+                int x3_var = alloc_var();
+                y_vars[i] = y_var;
+                Fr x2 = x * x;
+                Fr x3 = x2 * x;
+                set_var(x2_var, x2);
+                set_var(x3_var, x3);
+                Fr y = c3;
+                y = y * x + c2;
+                y = y * x + c1;
+                y = y * x + c0;
+                y = y * scale;
+                y_vals[i] = y;
+                set_var(y_var, y);
+            }
+            current_vars.swap(y_vars);
+            current_vals.swap(y_vals);
+        } else if (layer.type == LayerType::SELF_ATTENTION) {
+            const int seq_len = layer.attention_params.seq_len;
+            const int hidden = layer.attention_params.hidden_size;
+            const int num_heads = layer.attention_params.num_heads > 0 ? layer.attention_params.num_heads : 1;
+            if ((int)current_vals.size() != layer.in_size ||
+                layer.in_size != seq_len * hidden || num_heads <= 0 || (hidden % num_heads) != 0) {
+                fprintf(stderr, "[Witness/fixed] Attention size mismatch\n");
+                return Witness();
+            }
+            const int head_dim = hidden / num_heads;
+
+            auto fp_vec_to_fr = [&](const std::vector<bn254::Fp>& src) {
+                std::vector<Fr> out(src.size());
+                for (size_t i = 0; i < src.size(); i++) out[i] = fp_to_fr(src[i]);
+                return out;
+            };
+            std::vector<Fr> q_w = fp_vec_to_fr(layer.q_weights), q_b = fp_vec_to_fr(layer.q_bias);
+            std::vector<Fr> k_w = fp_vec_to_fr(layer.k_weights), k_b = fp_vec_to_fr(layer.k_bias);
+            std::vector<Fr> v_w = fp_vec_to_fr(layer.v_weights), v_b = fp_vec_to_fr(layer.v_bias);
+            std::vector<Fr> o_w = fp_vec_to_fr(layer.o_weights), o_b = fp_vec_to_fr(layer.o_bias);
+
+            auto run_fixed_projection = [&](const std::vector<Fr>& weights,
+                                            const std::vector<Fr>& bias,
+                                            std::vector<int>& out_vars,
+                                            std::vector<Fr>& out_vals) {
+                out_vars.resize(seq_len * hidden);
+                out_vals.resize(seq_len * hidden, Fr::zero());
+                for (int token = 0; token < seq_len; token++) {
+                    for (int out = 0; out < hidden; out++) {
+                        int y_var = alloc_var();
+                        out_vars[token * hidden + out] = y_var;
+                        Fr acc = bias[out];
+                        for (int in = 0; in < hidden; in++) {
+                            acc = acc + weights[(size_t)out * (size_t)hidden + (size_t)in] *
+                                        current_vals[token * hidden + in];
+                        }
+                        out_vals[token * hidden + out] = acc;
+                        set_var(y_var, acc);
+                    }
+                }
+            };
+
+            std::vector<int> q_vars, k_vars, v_vars;
+            std::vector<Fr> q_vals, k_vals, v_vals;
+            run_fixed_projection(q_w, q_b, q_vars, q_vals);
+            run_fixed_projection(k_w, k_b, k_vars, k_vals);
+            run_fixed_projection(v_w, v_b, v_vars, v_vals);
+
+            std::vector<int> score_vars(seq_len * num_heads * seq_len);
+            std::vector<Fr> score_vals(score_vars.size(), Fr::zero());
+            for (int token = 0; token < seq_len; token++) {
+                for (int head = 0; head < num_heads; head++) {
+                    for (int key_idx = 0; key_idx < seq_len; key_idx++) {
+                        int score_var = alloc_var();
+                        size_t off = ((size_t)token * (size_t)num_heads + (size_t)head) * (size_t)seq_len + (size_t)key_idx;
+                        score_vars[off] = score_var;
+                        Fr score = Fr::zero();
+                        for (int d = 0; d < head_dim; d++) {
+                            int idx = head * head_dim + d;
+                            int product_var = alloc_var();
+                            Fr prod = q_vals[token * hidden + idx] * k_vals[key_idx * hidden + idx];
+                            set_var(product_var, prod);
+                            score = score + prod;
+                        }
+                        score_vals[off] = score;
+                        set_var(score_var, score);
+                    }
+                }
+            }
+
+            std::vector<int> attn_vars(seq_len * num_heads * seq_len);
+            std::vector<Fr> attn_vals(attn_vars.size(), Fr::zero());
+            for (int token = 0; token < seq_len; token++) {
+                for (int head = 0; head < num_heads; head++) {
+                    std::vector<int> row_y_vars(seq_len);
+                    std::vector<Fr> row_exp_vals(seq_len, Fr::zero());
+                    Fr sum = Fr::zero();
+                    for (int key_idx = 0; key_idx < seq_len; key_idx++) {
+                        int y_var = alloc_var();
+                        int x2_var = alloc_var();
+                        int x3_var = alloc_var();
+                        int exp_var = alloc_var();
+                        row_y_vars[key_idx] = y_var;
+                        size_t off = ((size_t)token * (size_t)num_heads + (size_t)head) * (size_t)seq_len + (size_t)key_idx;
+                        Fr x = score_vals[off];
+                        Fr x2 = x * x;
+                        Fr x3 = x2 * x;
+                        Fr exp_val = Fr::one() + x + x2 + x3;
+                        set_var(x2_var, x2);
+                        set_var(x3_var, x3);
+                        set_var(exp_var, exp_val);
+                        row_exp_vals[key_idx] = exp_val;
+                        sum = sum + exp_val;
+                    }
+                    int sum_var = alloc_var();
+                    int sum_inv_var = alloc_var();
+                    set_var(sum_var, sum);
+                    Fr sum_inv = sum.inv();
+                    set_var(sum_inv_var, sum_inv);
+                    for (int key_idx = 0; key_idx < seq_len; key_idx++) {
+                        Fr y = row_exp_vals[key_idx] * sum_inv;
+                        size_t off = ((size_t)token * (size_t)num_heads + (size_t)head) * (size_t)seq_len + (size_t)key_idx;
+                        attn_vars[off] = row_y_vars[key_idx];
+                        attn_vals[off] = y;
+                        set_var(row_y_vars[key_idx], y);
+                    }
+                }
+            }
+
+            std::vector<int> context_vars(seq_len * hidden);
+            std::vector<Fr> context_vals(context_vars.size(), Fr::zero());
+            for (int token = 0; token < seq_len; token++) {
+                for (int head = 0; head < num_heads; head++) {
+                    for (int d = 0; d < head_dim; d++) {
+                        int idx = head * head_dim + d;
+                        int ctx_var = alloc_var();
+                        context_vars[token * hidden + idx] = ctx_var;
+                        Fr acc = Fr::zero();
+                        for (int key_idx = 0; key_idx < seq_len; key_idx++) {
+                            int product_var = alloc_var();
+                            size_t off = ((size_t)token * (size_t)num_heads + (size_t)head) * (size_t)seq_len + (size_t)key_idx;
+                            Fr prod = attn_vals[off] * v_vals[key_idx * hidden + idx];
+                            set_var(product_var, prod);
+                            acc = acc + prod;
+                        }
+                        context_vals[token * hidden + idx] = acc;
+                        set_var(ctx_var, acc);
+                    }
+                }
+            }
+
+            std::vector<int> y_vars(seq_len * hidden);
+            std::vector<Fr> y_vals(y_vars.size(), Fr::zero());
+            for (int token = 0; token < seq_len; token++) {
+                for (int out = 0; out < hidden; out++) {
+                    int y_var = alloc_var();
+                    y_vars[token * hidden + out] = y_var;
+                    Fr acc = o_b[out] + current_vals[token * hidden + out];
+                    for (int in = 0; in < hidden; in++) {
+                        acc = acc + o_w[(size_t)out * (size_t)hidden + (size_t)in] *
+                                    context_vals[token * hidden + in];
+                    }
+                    y_vals[token * hidden + out] = acc;
+                    set_var(y_var, acc);
+                }
+            }
+            current_vars.swap(y_vars);
+            current_vals.swap(y_vals);
+        } else {
+            continue; // final softmax is intentionally outside the R1CS statement
+        }
+    }
+
+    w.values.resize(next_var, Fr::zero());
+    w.num_public = public_output_size + 1 + (public_input ? input_size : 0);
+    w.num_private = public_input ? 0 : input_size;
+    printf("[Witness/fixed] Generated witness with %d values (%d public, %d private)\n",
+           (int)w.values.size(), w.num_public, w.num_private);
     return w;
 }
 

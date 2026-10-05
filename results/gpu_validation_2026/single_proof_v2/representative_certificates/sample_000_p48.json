@@ -1,0 +1,12 @@
+{
+  "attempt": {
+    "path_name": "p48",
+    "proof": "../../proof_chain_bundles/sample_000_p48/p48.proof.bin",
+    "public_inputs": "../../proof_chain_bundles/sample_000_p48/p48.public.bin",
+    "statement_meta": "../../proof_chain_bundles/sample_000_p48/p48.statement.json",
+    "vk": "../../artifacts/p48/vk.bin"
+  },
+  "chosen_path": "p48",
+  "policy_digest": "8fcdfdf8ca0ddb4c57ec979e84c7eae82afa54569ebb35393253b0dcb1445560",
+  "protocol_version": 2
+}

@@ -1,0 +1,173 @@
+"""Poseidon hash over the BN254 scalar field (roadmap 2.3 / 2.4).
+
+Parameters: t = 3 (2-to-1), alpha = 5, R_F = 8 full rounds, R_P = 57 partial
+rounds -- the instance used by circomlib / the Poseidon reference
+implementation. Round constants and the MDS matrix are generated with the
+reference Grain LFSR procedure (Grassi et al., "Poseidon", USENIX Sec. 2021,
+generate_parameters_grain.sage), and checked against the reference test vector
+poseidonperm_x5_254_3([0, 1, 2]).
+
+Also defines the vector commitment used by the PCANI v2 statement:
+  sponge(t=3, rate=2, capacity=1), capacity initialised to (len << 64) | domain,
+  absorb two field elements per permutation (zero padded), output state[1].
+
+  python -m zkml.poseidon --self-test
+  python -m zkml.poseidon --emit-cuh ../src/prover/poseidon_constants.cuh
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from functools import lru_cache
+
+P = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+T, RF, RP, ALPHA = 3, 8, 57, 5
+FIELD_BITS = 254
+
+# Reference test vector (Poseidon repository, test_vectors.txt, poseidonperm_x5_254_3)
+TEST_IN = [0, 1, 2]
+TEST_OUT = [0x115CC0F5E7D690413DF64C6B9662E9CF2A3617F2743245519E19607A4417189A,
+            0x0FCA49B798923AB0239DE1C9E7A4A9A2210312B6A2F616D18B5A87F9B628AE29,
+            0x0E7AE82E40091E63CBD4F16A6D16310B3729D4B6E138FCF54110E2867045A30C]
+
+
+class _Grain:
+    def __init__(self, field: int, sbox: int, n: int, t: int, rf: int, rp: int):
+        bits = []
+        bits += [int(b) for b in format(field, "02b")]
+        bits += [int(b) for b in format(sbox, "04b")]
+        bits += [int(b) for b in format(n, "012b")]
+        bits += [int(b) for b in format(t, "012b")]
+        bits += [int(b) for b in format(rf, "010b")]
+        bits += [int(b) for b in format(rp, "010b")]
+        bits += [1] * 30
+        assert len(bits) == 80
+        self.state = bits
+        for _ in range(160):
+            self._next()
+
+    def _next(self) -> int:
+        s = self.state
+        nb = s[62] ^ s[51] ^ s[38] ^ s[23] ^ s[13] ^ s[0]
+        self.state = s[1:] + [nb]
+        return nb
+
+    def bit(self) -> int:
+        while True:
+            b1 = self._next()
+            b2 = self._next()
+            if b1 == 1:
+                return b2
+
+    def raw(self, n: int) -> int:
+        v = 0
+        for _ in range(n):
+            v = (v << 1) | self.bit()
+        return v
+
+    def field_element(self, n: int, p: int) -> int:
+        # round constants: rejection sampling (reference generate_constants)
+        while True:
+            v = self.raw(n)
+            if v < p:
+                return v
+
+
+@lru_cache(maxsize=None)
+def params() -> tuple[tuple[int, ...], tuple[tuple[int, ...], ...]]:
+    g = _Grain(1, 0, FIELD_BITS, T, RF, RP)
+    rc = tuple(g.field_element(FIELD_BITS, P) for _ in range((RF + RP) * T))
+    # MDS: Cauchy matrix from 2t further Grain elements; the reference reduces these
+    # mod p (F(grain_random_bits(n))) instead of rejection sampling.
+    while True:
+        rnd = [g.raw(FIELD_BITS) % P for _ in range(2 * T)]
+        xs, ys = rnd[:T], rnd[T:]
+        if len(set(rnd)) == 2 * T and all((x + y) % P for x in xs for y in ys):
+            break
+    mds = tuple(tuple(pow((xs[i] + ys[j]) % P, P - 2, P) for j in range(T)) for i in range(T))
+    return rc, mds
+
+
+def permute(state: list[int]) -> list[int]:
+    rc, mds = params()
+    s = [x % P for x in state]
+    half = RF // 2
+    for r in range(RF + RP):
+        s = [(s[i] + rc[r * T + i]) % P for i in range(T)]
+        if r < half or r >= half + RP:
+            s = [pow(x, ALPHA, P) for x in s]
+        else:
+            s[0] = pow(s[0], ALPHA, P)
+        s = [sum(mds[i][j] * s[j] for j in range(T)) % P for i in range(T)]
+    return s
+
+
+def hash2(a: int, b: int) -> int:
+    """circomlib Poseidon([a, b])."""
+    return permute([0, a, b])[0]
+
+
+def commit(values: list[int], domain: int) -> int:
+    """Sponge commitment to a vector of field elements (PCANI v2 statement)."""
+    state = [((len(values) << 64) | domain) % P, 0, 0]
+    vals = [v % P for v in values]
+    if len(vals) % 2:
+        vals.append(0)
+    if not vals:
+        vals = [0, 0]
+    for i in range(0, len(vals), 2):
+        state[1] = (state[1] + vals[i]) % P
+        state[2] = (state[2] + vals[i + 1]) % P
+        state = permute(state)
+    return state[1]
+
+
+DOMAIN_MODEL = 0x4D4F44454C  # "MODEL"
+DOMAIN_INPUT = 0x494E505554  # "INPUT"
+
+
+def self_test() -> bool:
+    out = permute(TEST_IN)
+    ok = out == TEST_OUT
+    print("poseidon permutation test vector:", "PASS" if ok else f"FAIL {[hex(x) for x in out]}")
+    return ok
+
+
+def emit_cuh(path: str) -> None:
+    rc, mds = params()
+
+    def limbs(v: int) -> str:
+        return "{" + ", ".join(f"0x{(v >> (64 * k)) & 0xFFFFFFFFFFFFFFFF:016x}ULL" for k in range(4)) + "}"
+    lines = ["// Generated by python/zkml/poseidon.py --emit-cuh (do not edit).",
+             "// Poseidon BN254, t=3, alpha=5, R_F=8, R_P=57 (circomlib instance); values are",
+             "// canonical (standard-form) little-endian 64-bit limbs.",
+             "#pragma once", "#include <cstdint>", "namespace zkml { namespace poseidon_bn254 {",
+             f"static const int T = {T};", f"static const int RF = {RF};", f"static const int RP = {RP};",
+             f"static const uint64_t ROUND_CONSTANTS[{len(rc)}][4] = {{"]
+    lines += [f"    {limbs(v)}," for v in rc]
+    lines.append("};")
+    lines.append(f"static const uint64_t MDS[{T}][{T}][4] = {{")
+    for i in range(T):
+        lines.append("    {" + ", ".join(limbs(mds[i][j]) for j in range(T)) + "},")
+    lines.append("};")
+    lines.append(f"static const uint64_t DOMAIN_MODEL = 0x{DOMAIN_MODEL:x}ULL;")
+    lines.append(f"static const uint64_t DOMAIN_INPUT = 0x{DOMAIN_INPUT:x}ULL;")
+    lines.append("}}  // namespace zkml::poseidon_bn254")
+    with open(path, "w", newline="\n") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"wrote {path}")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--self-test", action="store_true")
+    ap.add_argument("--emit-cuh")
+    a = ap.parse_args()
+    ok = self_test()
+    if a.emit_cuh:
+        emit_cuh(a.emit_cuh)
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

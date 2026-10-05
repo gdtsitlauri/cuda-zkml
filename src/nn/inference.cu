@@ -177,6 +177,21 @@ InferenceTrace run_inference_gpu(const NNModel& model,
                 break;
             }
 
+            case LayerType::RELU_EXACT:
+            case LayerType::CONV2D: {
+                std::vector<Fp> host_input(layer.in_size);
+                CUDA_CHECK(cudaMemcpy(host_input.data(), current_input,
+                                       (size_t)layer.in_size * sizeof(Fp),
+                                       cudaMemcpyDeviceToHost));
+                std::vector<Fp> host_output = layer.type == LayerType::RELU_EXACT
+                    ? run_relu_exact_layer_host(layer, host_input)
+                    : run_conv2d_layer_host(layer, host_input);
+                CUDA_CHECK(cudaMemcpy(current_output, host_output.data(),
+                                       (size_t)layer.out_size * sizeof(Fp),
+                                       cudaMemcpyHostToDevice));
+                break;
+            }
+
             case LayerType::SELF_ATTENTION: {
                 std::vector<Fp> host_input(layer.in_size);
                 CUDA_CHECK(cudaMemcpy(host_input.data(), current_input,
@@ -266,6 +281,14 @@ std::vector<Fp> run_inference_cpu(const NNModel& model,
 
             case LayerType::SELF_ATTENTION: {
                 output = run_self_attention_cpu_layer(layer, current);
+                break;
+            }
+            case LayerType::RELU_EXACT: {
+                output = run_relu_exact_layer_host(layer, current);
+                break;
+            }
+            case LayerType::CONV2D: {
+                output = run_conv2d_layer_host(layer, current);
                 break;
             }
         }

@@ -1,0 +1,238 @@
+{
+  "p16": {
+    "cuda_python_exact_output_match": true,
+    "max_prove_ms": 1502.36,
+    "median_inference_ms": 72.09,
+    "median_prove_ms": 1475.75,
+    "median_verify_ms": 28.45,
+    "min_prove_ms": 1435.11,
+    "model_sha256": "f5d371c970241dc33a2e580fdd19fdc2e88fdcd6d11b5fddbc749cd2fb38ef84",
+    "model_tag64": "0xa23f3b65f03d7761",
+    "p95_prove_ms": 1498.658,
+    "proof_size_bytes": 256,
+    "r1cs_constraints": 75,
+    "r1cs_variables": 140,
+    "raw_repeats": [
+      {
+        "inference_ms": 72.75,
+        "model_tag64": "0xa23f3b65f03d7761",
+        "proof_size_bytes": 256,
+        "prove_ms": 1475.75,
+        "setup_ms": 0.0,
+        "verify_ms": 40.63
+      },
+      {
+        "inference_ms": 72.09,
+        "model_tag64": "0xa23f3b65f03d7761",
+        "proof_size_bytes": 256,
+        "prove_ms": 1502.36,
+        "setup_ms": 0.0,
+        "verify_ms": 28.45
+      },
+      {
+        "inference_ms": 71.65,
+        "model_tag64": "0xa23f3b65f03d7761",
+        "proof_size_bytes": 256,
+        "prove_ms": 1473.39,
+        "setup_ms": 0.0,
+        "verify_ms": 27.61
+      },
+      {
+        "inference_ms": 76.87,
+        "model_tag64": "0xa23f3b65f03d7761",
+        "proof_size_bytes": 256,
+        "prove_ms": 1435.11,
+        "setup_ms": 0.0,
+        "verify_ms": 27.18
+      },
+      {
+        "inference_ms": 71.8,
+        "model_tag64": "0xa23f3b65f03d7761",
+        "proof_size_bytes": 256,
+        "prove_ms": 1483.85,
+        "setup_ms": 0.0,
+        "verify_ms": 58.6
+      }
+    ],
+    "repeats": 5,
+    "setup_ms": 419.16,
+    "vk_sha256": "e78ef3788138483d7beb442ac078017ac375794b366d0ffcc16630aa0f9ebb43"
+  },
+  "p160": {
+    "cuda_python_exact_output_match": true,
+    "max_prove_ms": 1906.15,
+    "median_inference_ms": 74.46,
+    "median_prove_ms": 1884.02,
+    "median_verify_ms": 28.12,
+    "min_prove_ms": 1852.67,
+    "model_sha256": "625fc8fed683794d5c8d55631485eeba3b704c854564999558d7fb4cf98c32ff",
+    "model_tag64": "0x2378993cfdcf33c0",
+    "p95_prove_ms": 1904.766,
+    "proof_size_bytes": 256,
+    "r1cs_constraints": 651,
+    "r1cs_variables": 716,
+    "raw_repeats": [
+      {
+        "inference_ms": 73.69,
+        "model_tag64": "0x2378993cfdcf33c0",
+        "proof_size_bytes": 256,
+        "prove_ms": 1906.15,
+        "setup_ms": 0.0,
+        "verify_ms": 52.63
+      },
+      {
+        "inference_ms": 101.63,
+        "model_tag64": "0x2378993cfdcf33c0",
+        "proof_size_bytes": 256,
+        "prove_ms": 1877.28,
+        "setup_ms": 0.0,
+        "verify_ms": 28.93
+      },
+      {
+        "inference_ms": 74.46,
+        "model_tag64": "0x2378993cfdcf33c0",
+        "proof_size_bytes": 256,
+        "prove_ms": 1852.67,
+        "setup_ms": 0.0,
+        "verify_ms": 27.54
+      },
+      {
+        "inference_ms": 78.5,
+        "model_tag64": "0x2378993cfdcf33c0",
+        "proof_size_bytes": 256,
+        "prove_ms": 1884.02,
+        "setup_ms": 0.0,
+        "verify_ms": 28.12
+      },
+      {
+        "inference_ms": 72.69,
+        "model_tag64": "0x2378993cfdcf33c0",
+        "proof_size_bytes": 256,
+        "prove_ms": 1899.23,
+        "setup_ms": 0.0,
+        "verify_ms": 27.8
+      }
+    ],
+    "repeats": 5,
+    "setup_ms": 2959.43,
+    "vk_sha256": "eea3cf351c5bfc306197cdceaf36922749dfb26586a9ef66d4d27c62e26aad5d"
+  },
+  "p48": {
+    "cuda_python_exact_output_match": true,
+    "max_prove_ms": 1640.21,
+    "median_inference_ms": 73.36,
+    "median_prove_ms": 1628.66,
+    "median_verify_ms": 27.64,
+    "min_prove_ms": 1567.65,
+    "model_sha256": "9d06f3dad3513b97cf144d226e6881992e30063a8d7d01de9ef9355d290e873b",
+    "model_tag64": "0xdf94d7b528090037",
+    "p95_prove_ms": 1639.506,
+    "proof_size_bytes": 256,
+    "r1cs_constraints": 203,
+    "r1cs_variables": 268,
+    "raw_repeats": [
+      {
+        "inference_ms": 70.75,
+        "model_tag64": "0xdf94d7b528090037",
+        "proof_size_bytes": 256,
+        "prove_ms": 1640.21,
+        "setup_ms": 0.0,
+        "verify_ms": 27.14
+      },
+      {
+        "inference_ms": 70.92,
+        "model_tag64": "0xdf94d7b528090037",
+        "proof_size_bytes": 256,
+        "prove_ms": 1598.58,
+        "setup_ms": 0.0,
+        "verify_ms": 27.45
+      },
+      {
+        "inference_ms": 84.52,
+        "model_tag64": "0xdf94d7b528090037",
+        "proof_size_bytes": 256,
+        "prove_ms": 1567.65,
+        "setup_ms": 0.0,
+        "verify_ms": 28.38
+      },
+      {
+        "inference_ms": 73.36,
+        "model_tag64": "0xdf94d7b528090037",
+        "proof_size_bytes": 256,
+        "prove_ms": 1628.66,
+        "setup_ms": 0.0,
+        "verify_ms": 48.36
+      },
+      {
+        "inference_ms": 107.14,
+        "model_tag64": "0xdf94d7b528090037",
+        "proof_size_bytes": 256,
+        "prove_ms": 1636.69,
+        "setup_ms": 0.0,
+        "verify_ms": 27.64
+      }
+    ],
+    "repeats": 5,
+    "setup_ms": 1299.25,
+    "vk_sha256": "3d2bc4a3cd1fce29a0b28098e908e91dcbe877d7c3acfb96b6ab1e4cba8ff11d"
+  },
+  "p96": {
+    "cuda_python_exact_output_match": true,
+    "max_prove_ms": 1838.47,
+    "median_inference_ms": 74.65,
+    "median_prove_ms": 1781.65,
+    "median_verify_ms": 28.56,
+    "min_prove_ms": 1766.79,
+    "model_sha256": "aebcf3935272e1cdedbb394c5ae9afa952390a4a6519702dcc34be1ebe22acdc",
+    "model_tag64": "0xd9319a872ce5a140",
+    "p95_prove_ms": 1830.744,
+    "proof_size_bytes": 256,
+    "r1cs_constraints": 395,
+    "r1cs_variables": 460,
+    "raw_repeats": [
+      {
+        "inference_ms": 81.98,
+        "model_tag64": "0xd9319a872ce5a140",
+        "proof_size_bytes": 256,
+        "prove_ms": 1766.79,
+        "setup_ms": 0.0,
+        "verify_ms": 27.95
+      },
+      {
+        "inference_ms": 71.85,
+        "model_tag64": "0xd9319a872ce5a140",
+        "proof_size_bytes": 256,
+        "prove_ms": 1769.67,
+        "setup_ms": 0.0,
+        "verify_ms": 28.27
+      },
+      {
+        "inference_ms": 74.65,
+        "model_tag64": "0xd9319a872ce5a140",
+        "proof_size_bytes": 256,
+        "prove_ms": 1799.84,
+        "setup_ms": 0.0,
+        "verify_ms": 53.12
+      },
+      {
+        "inference_ms": 102.56,
+        "model_tag64": "0xd9319a872ce5a140",
+        "proof_size_bytes": 256,
+        "prove_ms": 1838.47,
+        "setup_ms": 0.0,
+        "verify_ms": 28.56
+      },
+      {
+        "inference_ms": 74.08,
+        "model_tag64": "0xd9319a872ce5a140",
+        "proof_size_bytes": 256,
+        "prove_ms": 1781.65,
+        "setup_ms": 0.0,
+        "verify_ms": 29.05
+      }
+    ],
+    "repeats": 5,
+    "setup_ms": 1735.01,
+    "vk_sha256": "7d1cd012ebf13db7fd097f0c9f3a609315279635d850f8389bbcfdbc718df97d"
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "calibration_accuracy": 0.9637883008356546,
+  "confidence_kind": "margin",
+  "cost_semantics": "selected_proof",
+  "expected_proof_cost": 1596.3199721448464,
+  "full_path_accuracy": 0.9637883008356546,
+  "max_accuracy_drop": 0.0,
+  "paths": [
+    {
+      "model_digest": "f5d371c970241dc33a2e580fdd19fdc2e88fdcd6d11b5fddbc749cd2fb38ef84",
+      "name": "p16",
+      "proof_cost": 1475.75,
+      "workload_id": "digits-exact-integer"
+    },
+    {
+      "model_digest": "9d06f3dad3513b97cf144d226e6881992e30063a8d7d01de9ef9355d290e873b",
+      "name": "p48",
+      "proof_cost": 1628.66,
+      "workload_id": "digits-exact-integer"
+    },
+    {
+      "model_digest": "aebcf3935272e1cdedbb394c5ae9afa952390a4a6519702dcc34be1ebe22acdc",
+      "name": "p96",
+      "proof_cost": 1781.65,
+      "workload_id": "digits-exact-integer"
+    },
+    {
+      "model_digest": "625fc8fed683794d5c8d55631485eeba3b704c854564999558d7fb4cf98c32ff",
+      "name": "p160",
+      "proof_cost": 1884.02,
+      "workload_id": "digits-exact-integer"
+    }
+  ],
+  "policy_digest": "8fcdfdf8ca0ddb4c57ec979e84c7eae82afa54569ebb35393253b0dcb1445560",
+  "thresholds": [
+    350937070.4,
+    254501196.0,
+    237925533.0
+  ]
+}

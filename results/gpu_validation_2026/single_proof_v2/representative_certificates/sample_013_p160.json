@@ -1,0 +1,12 @@
+{
+  "attempt": {
+    "path_name": "p160",
+    "proof": "../../proof_chain_bundles/sample_013_p160/p160.proof.bin",
+    "public_inputs": "../../proof_chain_bundles/sample_013_p160/p160.public.bin",
+    "statement_meta": "../../proof_chain_bundles/sample_013_p160/p160.statement.json",
+    "vk": "../../artifacts/p160/vk.bin"
+  },
+  "chosen_path": "p160",
+  "policy_digest": "8fcdfdf8ca0ddb4c57ec979e84c7eae82afa54569ebb35393253b0dcb1445560",
+  "protocol_version": 2
+}

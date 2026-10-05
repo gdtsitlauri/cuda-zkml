@@ -99,11 +99,15 @@ void test_groth16_small() {
     bool loaded = loaded_pk.load_streaming(pk_path.c_str());
     CHECK(loaded, "pk.load_streaming should succeed");
 
-    TEST("loaded proving key preserves scalar query data");
-    CHECK(!loaded_pk.A_query_scalars.empty() &&
-          (int)loaded_pk.A_query_scalars.size() == circuit.num_variables &&
-          loaded_pk.debug_trapdoor.available,
-          "loaded pk should contain scalar queries and trapdoor metadata");
+    TEST("loaded proving key contains no toxic scalar material");
+    CHECK(loaded_pk.A_query_scalars.empty() &&
+          loaded_pk.B_query_scalars.empty() &&
+          loaded_pk.L_query_scalars.empty() &&
+          loaded_pk.H_query_scalars.empty() &&
+          !loaded_pk.debug_trapdoor.available &&
+          (int)loaded_pk.A_query.size() == circuit.num_variables &&
+          (int)loaded_pk.B_g2_query.size() == circuit.num_variables,
+          "loaded v3 pk should contain group queries only");
 
     TEST("proof generation works after PK reload");
     Groth16Proof proof_reloaded = Groth16Prover::prove(loaded_pk, circuit, witness);

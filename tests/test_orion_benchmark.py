@@ -33,12 +33,21 @@ def test_run_orion_benchmark_with_fake_scarb_repo(tmp_path):
         "raise SystemExit(1)\n",
         encoding="utf-8",
     )
-    scarb_cmd = bin_dir / "scarb.cmd"
-    scarb_cmd.write_text(
-        "@echo off\n"
-        f"python \"{fake_impl}\" %*\n",
-        encoding="utf-8",
-    )
+    if os.name == "nt":
+        scarb_cmd = bin_dir / "scarb.cmd"
+        scarb_cmd.write_text(
+            "@echo off\n"
+            f"python \"{fake_impl}\" %*\n",
+            encoding="utf-8",
+        )
+    else:
+        scarb_cmd = bin_dir / "scarb"
+        scarb_cmd.write_text(
+            "#!/bin/sh\n"
+            f'exec "{sys.executable}" "{fake_impl}" "$@"\n',
+            encoding="utf-8",
+        )
+        scarb_cmd.chmod(0o755)
 
     env = os.environ.copy()
     env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")

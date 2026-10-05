@@ -30,7 +30,8 @@
 // Memory for GTX 1650 (3.5GB usable):
 //   PK: ~2*n*96 (G1) + n*192 (G2) bytes
 //   For n=100K constraints: ~48 MB → fine
-//   For n>10M: use streaming PK loader from disk
+//   For n>10M: external/chunked PK work is future work; the hardened loader
+//   deliberately refuses to pretend that skipped point queries are usable.
 // ============================================================
 
 namespace zkml {
@@ -74,8 +75,10 @@ struct QAP {
 // Proving Key
 // ============================================================
 struct ProvingKey {
-    // Scalar-domain query representation. Since every query point is a fixed-generator
-    // multiple in this implementation, proving can collapse MSMs into dot products in Fr.
+    // SECURITY NOTE (2026 hardening): scalar-domain query exponents reveal
+    // discrete-log trapdoor material and MUST NOT be persisted in a production PK.
+    // These vectors are retained only as ephemeral setup scratch space and are wiped
+    // before setup returns unless ZKML_UNSAFE_KEEP_TRAPDOOR=1 is explicitly set.
     std::vector<Fr> tau_powers_scalars;
     std::vector<Fr> A_query_scalars;
     std::vector<Fr> B_query_scalars;
@@ -124,8 +127,10 @@ struct ProvingKey {
     int num_variables;
     int num_public;
 
-    // Streaming support for large proving keys
-    std::string pk_path; // path to serialized PK on disk
+    // PK loading metadata.  The hardened v3 format stores group elements only.
+    // load_streaming() keeps its historical name for API compatibility, but v3 loads
+    // the complete point representation rather than silently skipping required queries.
+    std::string pk_path;
     bool is_streaming;
     bool materialized_points;
     DebugTrapdoor debug_trapdoor;
@@ -220,7 +225,9 @@ public:
         const R1CS& circuit,
         const std::vector<Witness>& witnesses);
 
-    // Aggregate N proofs into 1 using random linear combination
+    // UNSUPPORTED: naive linear-combination aggregation of Groth16 proofs is not
+    // sound in general.  This compatibility entry point now returns an invalid proof.
+    // Use independent verification or a separately specified aggregation protocol.
     static Groth16Proof aggregate_proofs(
         const std::vector<Groth16Proof>& proofs,
         const VerificationKey& vk,
@@ -245,7 +252,8 @@ public:
                         const Groth16Proof& proof,
                         const std::vector<Fr>& public_inputs);
 
-    // Batch verify using random linear combination
+    // Safe batch wrapper: independently verifies every proof.  No unsupported
+    // random-linear Groth16 aggregation claim is made.
     static bool batch_verify(const VerificationKey& vk,
                               const std::vector<Groth16Proof>& proofs,
                               const std::vector<std::vector<Fr>>& public_inputs);

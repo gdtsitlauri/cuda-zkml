@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.18)
 project(cuda-zkml LANGUAGES CXX CUDA)
 
-option(ZKML_FAST_DEBUG_LOOP "Speed up iterative prover/debug builds" ON)
-option(ZKML_ULTRA_FAST_COMPILE "Minimize CUDA compile time for rapid iteration (slower runtime)" ON)
+option(ZKML_FAST_DEBUG_LOOP "Speed up iterative prover/debug builds (NOT for benchmarks)" OFF)
+option(ZKML_ULTRA_FAST_COMPILE "Minimize CUDA compile time for rapid iteration (slower runtime; NOT for benchmarks)" OFF)
 set(ZKML_NVCC_THREADS "1" CACHE STRING "NVCC internal thread count (0 means auto)")
 set(ZKML_NVCC_SPLIT_COMPILE_THREADS "1" CACHE STRING "NVCC split-compile thread count (0 means auto)")
 
@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_ARCHITECTURES 75)
 
-option(ZKML_FAST_ITERATION "Use faster CUDA compile settings for debug iteration" ON)
+option(ZKML_FAST_ITERATION "Use faster CUDA compile settings for debug iteration (NOT for benchmarks)" OFF)
 
 if(MSVC)
     # CUDA 13 + CCCL requires standard-conforming MSVC preprocessor.
@@ -38,7 +38,7 @@ if(ZKML_FAST_ITERATION)
         set(CMAKE_CUDA_FLAGS_RELEASE "-O1 -lineinfo")
     endif()
 else()
-    set(CMAKE_CUDA_FLAGS_RELEASE "-O3 --use_fast_math")
+    set(CMAKE_CUDA_FLAGS_RELEASE "-O3 -lineinfo")
 endif()
 set(CMAKE_CUDA_FLAGS_DEBUG "-G -g -lineinfo")
 
@@ -121,11 +121,17 @@ add_executable(zkml-prove src/cli/prove.cu)
 set_target_properties(zkml-prove PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 target_link_libraries(zkml-prove zkml_prover zkml_verifier zkml_nn zkml_msm zkml_ntt zkml_curve zkml_field CUDA::cudart)
 
+# Groth16 phase-2 MPC ceremony (roadmap 2.5); host-only code compiled by nvcc.
+add_executable(zkml-ceremony src/cli/ceremony.cu)
+set_target_properties(zkml-ceremony PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+target_link_libraries(zkml-ceremony zkml_curve zkml_field CUDA::cudart)
+
 add_executable(zkml-verify src/cli/verify.cu)
 set_target_properties(zkml-verify PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 target_link_libraries(zkml-verify zkml_prover zkml_verifier zkml_curve zkml_field CUDA::cudart)
 
 if(ZKML_FAST_DEBUG_LOOP)
+    message(WARNING "ZKML_FAST_DEBUG_LOOP=ON: generated timings are development-only and must not be reported as release benchmarks")
     message(STATUS "ZKML_FAST_DEBUG_LOOP=ON (using faster CUDA compile flags for prover targets)")
     if(ZKML_ULTRA_FAST_COMPILE)
         message(STATUS "ZKML_ULTRA_FAST_COMPILE=ON (O0 compile for prover/CLI targets)")
@@ -186,6 +192,22 @@ add_executable(test_groth16 tests/test_groth16.cu)
 set_target_properties(test_groth16 PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
 target_link_libraries(test_groth16 PRIVATE zkml_prover zkml_verifier zkml_msm zkml_ntt zkml_curve zkml_field zkml_nn CUDA::cudart)
 add_test(NAME Groth16Test COMMAND test_groth16)
+
+add_executable(test_fixed_statement tests/test_fixed_statement.cu)
+set_target_properties(test_fixed_statement PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+target_link_libraries(test_fixed_statement PRIVATE zkml_nn zkml_field CUDA::cudart)
+add_test(NAME FixedStatementTest COMMAND test_fixed_statement)
+
+# Host-logic tests of the PCANI v2 statement, gadgets and MPC ceremony
+# (roadmap 1.1, 1.2, 2.1-2.6). The same sources also build without CUDA:
+# tests/host/run_host_tests.sh.
+foreach(host_test gadgets statement_v2 ceremony)
+    set_source_files_properties(tests/host/test_${host_test}.cpp PROPERTIES LANGUAGE CUDA)
+    add_executable(test_host_${host_test} tests/host/test_${host_test}.cpp)
+    set_target_properties(test_host_${host_test} PROPERTIES CUDA_SEPARABLE_COMPILATION ON)
+    target_link_libraries(test_host_${host_test} PRIVATE zkml_nn zkml_curve zkml_field CUDA::cudart)
+    add_test(NAME HostTest_${host_test} COMMAND test_host_${host_test} ${CMAKE_CURRENT_BINARY_DIR})
+endforeach()
 
 if(ZKML_FAST_DEBUG_LOOP)
     if(ZKML_ULTRA_FAST_COMPILE)

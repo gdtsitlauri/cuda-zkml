@@ -1,0 +1,16 @@
+{
+  "attempts": 1,
+  "chosen_path": "p16",
+  "errors": [],
+  "input_size": 64,
+  "label": 0,
+  "native_verification": {
+    "p16": true
+  },
+  "policy_route_index": 0,
+  "route_margins": {
+    "p16": 461718627
+  },
+  "sample_index": 1,
+  "valid": true
+}

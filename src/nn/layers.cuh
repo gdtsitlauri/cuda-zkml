@@ -37,7 +37,25 @@ enum class LayerType {
     LINEAR,
     RELU_APPROX,
     SOFTMAX_APPROX,
-    SELF_ATTENTION
+    SELF_ATTENTION,
+    RELU_EXACT,   // max(z, 0) via in-circuit bit decomposition, then floor(./2^shift)
+    CONV2D        // native sparse convolution, CHW layout
+};
+
+// Exact ReLU parameters (roadmap 2.1): inputs must lie in [-2^(bits-1), 2^(bits-1)).
+struct ReLUExactParams {
+    int bits = 32;
+    int shift = 0;     // rescale after ReLU: floor(relu(z) / 2^shift)
+};
+
+// 2-D convolution parameters (roadmap 2.2). Weights [out_c][in_c][kh][kw], bias [out_c].
+struct Conv2DParams {
+    int in_c = 0, in_h = 0, in_w = 0, out_c = 0, kh = 0, kw = 0, stride = 1, pad = 0;
+    int out_h() const { return (in_h + 2 * pad - kh) / stride + 1; }
+    int out_w() const { return (in_w + 2 * pad - kw) / stride + 1; }
+    int in_size() const { return in_c * in_h * in_w; }
+    int out_size() const { return out_c * out_h() * out_w(); }
+    size_t weight_count() const { return (size_t)out_c * in_c * kh * kw; }
 };
 
 // Linear layer: y = Wx + b

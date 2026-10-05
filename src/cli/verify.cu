@@ -37,9 +37,13 @@ static std::vector<bn254::Fr> load_public_inputs_json(const std::string& path) {
         }
 
         bool neg = (tok[0] == '-');
-        const char* digits = tok.c_str() + ((tok[0] == '-' || tok[0] == '+') ? 1 : 0);
-        unsigned long long v = std::strtoull(digits, nullptr, 10);
-        bn254::Fr fr = bn254::Fr::from_uint((uint64_t)v);
+        size_t start = (tok[0] == '-' || tok[0] == '+') ? 1 : 0;
+        bn254::Fr fr = bn254::Fr::zero();
+        const bn254::Fr ten = bn254::Fr::from_uint(10);
+        for (size_t i = start; i < tok.size(); ++i) {
+            if (tok[i] < '0' || tok[i] > '9') { tok.clear(); return; }
+            fr = fr * ten + bn254::Fr::from_uint((uint64_t)(tok[i] - '0'));
+        }
         out.push_back(neg ? -fr : fr);
         tok.clear();
     };

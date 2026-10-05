@@ -1,0 +1,110 @@
+{
+  "evidence_boundary": {
+    "gpu_timings": "measured on the uploaded completed NVIDIA run; no timing is fabricated",
+    "heldout_routing": "recomputed from stored exact-integer test logits",
+    "limitation": "not every held-out sample was individually proved; GPU cost is estimated from repeated per-path measurements",
+    "representative_crypto": "selected proofs were already native-Groth16 verified in protocol-v1 bundles; v2 reuses those same proofs",
+    "single_proof_cost": "weighted mean of measured standalone per-path median prover times"
+  },
+  "measured_path_costs": {
+    "p16": {
+      "median_inference_ms": 72.09,
+      "median_prove_ms": 1475.75,
+      "median_verify_ms": 28.45,
+      "proof_size_bytes": 256,
+      "r1cs_constraints": 75
+    },
+    "p160": {
+      "median_inference_ms": 74.46,
+      "median_prove_ms": 1884.02,
+      "median_verify_ms": 28.12,
+      "proof_size_bytes": 256,
+      "r1cs_constraints": 651
+    },
+    "p48": {
+      "median_inference_ms": 73.36,
+      "median_prove_ms": 1628.66,
+      "median_verify_ms": 27.64,
+      "proof_size_bytes": 256,
+      "r1cs_constraints": 203
+    },
+    "p96": {
+      "median_inference_ms": 74.65,
+      "median_prove_ms": 1781.65,
+      "median_verify_ms": 28.56,
+      "proof_size_bytes": 256,
+      "r1cs_constraints": 395
+    }
+  },
+  "protocol_v1_observed": {
+    "expected_chain_proof_cost_ms": 2899.9466388888895,
+    "proof_cost_savings": -0.5392334682693865,
+    "static_full_proof_cost_ms": 1884.02
+  },
+  "protocol_v2_single_proof": {
+    "calibration_accuracy": 0.9637883008356546,
+    "calibration_full_path_accuracy": 0.9637883008356546,
+    "estimated_adaptive_inference_plus_proof_ms": 1737.0644999999997,
+    "estimated_end_to_end_savings": 0.11305476696213401,
+    "estimated_end_to_end_speedup_x": 1.1274653301590127,
+    "expected_selected_proof_cost_ms": 1602.5067499999998,
+    "expected_sequential_inference_ms": 134.55774999999997,
+    "heldout_accuracy": 0.9611111111111111,
+    "heldout_accuracy_drop": 0.008333333333333304,
+    "heldout_full_path_accuracy": 0.9694444444444444,
+    "proof_cost_savings": 0.14942158257343352,
+    "proof_cost_speedup_x": 1.1756705548978188,
+    "route_counts": {
+      "p16": 146,
+      "p160": 20,
+      "p48": 143,
+      "p96": 51
+    },
+    "static_full_inference_plus_proof_ms": 1958.48,
+    "static_full_proof_cost_ms": 1884.02,
+    "thresholds": [
+      350937070.4,
+      254501196.0,
+      237925533.0
+    ]
+  },
+  "representative_single_proof_certificates": [
+    {
+      "chosen_margin": 328999765,
+      "chosen_path": "p48",
+      "native_groth16_verified_in_gpu_run": true,
+      "sample": "sample_000_p48",
+      "selected_path_accepts": true,
+      "source_v1_bundle_valid": true,
+      "threshold": 254501196.0
+    },
+    {
+      "chosen_margin": 461718627,
+      "chosen_path": "p16",
+      "native_groth16_verified_in_gpu_run": true,
+      "sample": "sample_001_p16",
+      "selected_path_accepts": true,
+      "source_v1_bundle_valid": true,
+      "threshold": 350937070.4
+    },
+    {
+      "chosen_margin": 533823709,
+      "chosen_path": "p96",
+      "native_groth16_verified_in_gpu_run": true,
+      "sample": "sample_012_p96",
+      "selected_path_accepts": true,
+      "source_v1_bundle_valid": true,
+      "threshold": 237925533.0
+    },
+    {
+      "chosen_margin": 686610383,
+      "chosen_path": "p160",
+      "native_groth16_verified_in_gpu_run": true,
+      "sample": "sample_013_p160",
+      "selected_path_accepts": true,
+      "source_v1_bundle_valid": true,
+      "threshold": null
+    }
+  ],
+  "status": "protocol_v2_reanalysis_completed"
+}

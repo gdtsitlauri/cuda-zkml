@@ -1,0 +1,81 @@
+{
+  "system": "EZKL",
+  "ezkl_version": "23.0.5",
+  "workload_id": "mnist-conv-int16-pcani-fixed-model-public-input-b1",
+  "benchmark": "mnist exact-integer PCANI (conv)",
+  "statement": "public input / fixed exact-integer model / public pre-softmax scores",
+  "hardware": "AMD64 Family 25 Model 80 Stepping 0, AuthenticAMD (EZKL CPU prover)",
+  "python": "3.12.15 (main, Oct  3 2026, 01:05:37) [MSC v.1944 64 bit (AMD64)]",
+  "sample_index": 0,
+  "note": "Cross-hardware if CUDA-zkML ran on a GPU; report as such.",
+  "rows": [
+    {
+      "path": "p2",
+      "status": "measured",
+      "comparable": true,
+      "decomp_legs": 3,
+      "logrows": 16,
+      "ezkl_scales": {
+        "input_scale": 0,
+        "param_scale": 0
+      },
+      "outputs_match_exact_logits": true,
+      "median_prove_ms": 2888.570150000305,
+      "min_prove_ms": 2859.644699998171,
+      "max_prove_ms": 2917.4956000024395,
+      "median_verify_ms": 49.09080000106769,
+      "proof_size_bytes": 128473,
+      "raw_prove_ms": [
+        2859.644699998171,
+        2917.4956000024395
+      ],
+      "raw_verify_ms": [
+        46.687400001246715,
+        51.49420000088867
+      ],
+      "repeats": 2,
+      "stage_ms": {
+        "settings_ms": 68.8004000003275,
+        "calibrate_ms": 386.98670000303537,
+        "compile_ms": 24.870600002032006,
+        "witness_ms": 84.54089999941061,
+        "srs_ms": 3415.785200002574,
+        "setup_ms": 2701.9127999992634
+      }
+    },
+    {
+      "path": "p12",
+      "status": "measured",
+      "comparable": true,
+      "decomp_legs": 3,
+      "logrows": 19,
+      "ezkl_scales": {
+        "input_scale": 0,
+        "param_scale": 0
+      },
+      "outputs_match_exact_logits": true,
+      "median_prove_ms": 24184.861349998755,
+      "min_prove_ms": 24000.2444999991,
+      "max_prove_ms": 24369.47819999841,
+      "median_verify_ms": 372.1194999998261,
+      "proof_size_bytes": 128489,
+      "raw_prove_ms": [
+        24369.47819999841,
+        24000.2444999991
+      ],
+      "raw_verify_ms": [
+        293.92659999939497,
+        450.3124000002572
+      ],
+      "repeats": 2,
+      "stage_ms": {
+        "settings_ms": 405.10379999977886,
+        "calibrate_ms": 1970.8524999987276,
+        "compile_ms": 100.37730000112788,
+        "witness_ms": 458.18249999865657,
+        "srs_ms": 27232.896000001347,
+        "setup_ms": 22724.630000000616
+      }
+    }
+  ]
+}

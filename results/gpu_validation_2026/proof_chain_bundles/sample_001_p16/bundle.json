@@ -1,0 +1,14 @@
+{
+  "attempts": [
+    {
+      "path_name": "p16",
+      "proof": "p16.proof.bin",
+      "public_inputs": "p16.public.bin",
+      "statement_meta": "p16.statement.json",
+      "vk": "../../artifacts/p16/vk.bin"
+    }
+  ],
+  "chosen_path": "p16",
+  "policy_digest": "e62f5a7408e278520c41eea3135a8e255820bdcdc7ba4be771b4fe23b65ccfe9",
+  "protocol_version": 1
+}

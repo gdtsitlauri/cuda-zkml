@@ -16,8 +16,8 @@
 // 3. Quotient polynomial h(x) via GPU NTT
 // 4. GPU-accelerated MSM for proof elements
 // 5. KZG polynomial commitments
-// 6. Proof aggregation via random linear combination
-// 7. Streaming PK loader for large proving keys
+// 6. Hardened proving-key serialization without trapdoor/scalar exponents
+// 7. Safe multi-proof verification wrapper (independent verification)
 //
 // Performance-critical GPU operations:
 // - NTT for QAP polynomial multiplication: O(n log n) field ops
@@ -470,12 +470,22 @@ void Groth16Prover::setup(const R1CS& circuit, ProvingKey& pk, VerificationKey& 
     Fr beta = random_nonzero_fr(rng);
     Fr gamma = random_nonzero_fr(rng);
     Fr delta = random_nonzero_fr(rng);
-    pk.debug_trapdoor.tau = tau;
-    pk.debug_trapdoor.alpha = alpha;
-    pk.debug_trapdoor.beta = beta;
-    pk.debug_trapdoor.gamma = gamma;
-    pk.debug_trapdoor.delta = delta;
-    pk.debug_trapdoor.available = true;
+    // Keep trapdoor values only when explicitly requested for local diagnostics.
+    // Production/default setup never exposes them through the returned proving key.
+    const char* unsafe_keep_trapdoor = std::getenv("ZKML_UNSAFE_KEEP_TRAPDOOR");
+    const bool keep_unsafe_trapdoor = (unsafe_keep_trapdoor != nullptr &&
+                                       std::strcmp(unsafe_keep_trapdoor, "1") == 0);
+    if (keep_unsafe_trapdoor) {
+        fprintf(stderr, "[Setup] WARNING: retaining toxic waste in memory for diagnostics only. DO NOT use in production.\n");
+        pk.debug_trapdoor.tau = tau;
+        pk.debug_trapdoor.alpha = alpha;
+        pk.debug_trapdoor.beta = beta;
+        pk.debug_trapdoor.gamma = gamma;
+        pk.debug_trapdoor.delta = delta;
+        pk.debug_trapdoor.available = true;
+    } else {
+        pk.debug_trapdoor = ProvingKey::DebugTrapdoor();
+    }
 
     // Generators
     G1Affine g1_gen = G1Affine::generator();
@@ -496,19 +506,14 @@ void Groth16Prover::setup(const R1CS& circuit, ProvingKey& pk, VerificationKey& 
     vk.gamma_g2 = pk.gamma_g2;
     vk.delta_g2 = pk.delta_g2;
 
-    // Keep scalar tau powers for the fast proving path. Materializing the full
-    // SRS in group form is optional because it is not required for the main
-    // prover/verifier pipeline used by the CLI and tests.
-    printf("[Setup] Computing %d tau powers in Fr...\n", n + 1);
-    pk.tau_powers_scalars.resize(n + 1);
-    Fr tau_pow = Fr::from_uint(1);
-    for (int i = 0; i <= n; i++) {
-        pk.tau_powers_scalars[i] = tau_pow;
-        tau_pow = tau_pow * tau;
-    }
+    // Hardened setup keeps only group-encoded SRS/query material in the returned PK.
+    // Scalar tau powers would expose the trapdoor (tau is literally the second element),
+    // so they are never retained in the default path.
+    pk.tau_powers_scalars.clear();
     pk.tau_powers_g1.clear();
 
-    // Tau in G2: [G2, τ·G2]
+    // Public SRS fragment in G2: [G2, tau*G2].  Group elements do not reveal tau
+    // under the discrete-log assumption.
     pk.tau_powers_g2.resize(2);
     pk.tau_powers_g2[0] = g2_gen;
     pk.tau_powers_g2[1] = g2j.scalar_mul(tau).to_affine();
@@ -524,19 +529,27 @@ void Groth16Prover::setup(const R1CS& circuit, ProvingKey& pk, VerificationKey& 
     // Build proving key queries
     printf("[Setup] Building A, B, L, H queries...\n");
 
-    pk.A_query_scalars = A_at_tau;
-    pk.B_query_scalars = B_at_tau;
-    pk.A_query.clear();
-    pk.B_g1_query.clear();
-    pk.B_g2_query.clear();
+    // Materialize all Groth16 queries as group elements.  This is the security
+    // boundary between trusted setup and proving: the prover receives points,
+    // never their secret scalar discrete logs.
+    pk.A_query.resize(m);
+    pk.B_g1_query.resize(m);
+    pk.B_g2_query.resize(m);
+    for (int i = 0; i < m; i++) {
+        pk.A_query[i] = g1j.scalar_mul(A_at_tau[i]).to_affine();
+        pk.B_g1_query[i] = g1j.scalar_mul(B_at_tau[i]).to_affine();
+        pk.B_g2_query[i] = g2j.scalar_mul(B_at_tau[i]).to_affine();
+    }
+    pk.A_query_scalars.clear();
+    pk.B_query_scalars.clear();
 
     // L query: (β·A_i(τ) + α·B_i(τ) + C_i(τ)) / δ · G1
     // For private variables only (indices > num_public)
     int num_pub = circuit.num_public_inputs;
     int l_size = m - num_pub - 1; // exclude w[0]=1 and public inputs
     if (l_size < 0) l_size = 0;
-    pk.L_query_scalars.resize(l_size, Fr::zero());
-    pk.L_query.clear();
+    pk.L_query_scalars.clear();
+    pk.L_query.resize(l_size);
 
     // Compute delta inverse
     Fr delta_inv = Fr::from_uint(1);
@@ -559,7 +572,7 @@ void Groth16Prover::setup(const R1CS& circuit, ProvingKey& pk, VerificationKey& 
         int var_idx = i + 1 + num_pub; // skip w[0] and public inputs
         if (var_idx >= m) break;
         Fr l_scalar = (beta * A_at_tau[var_idx] + alpha * B_at_tau[var_idx] + C_at_tau[var_idx]) * delta_inv;
-        pk.L_query_scalars[i] = l_scalar;
+        pk.L_query[i] = g1j.scalar_mul(l_scalar).to_affine();
     }
 
     // H query: [τ^i · Z_H(τ) / δ] · G1 for i = 0..n-1
@@ -567,11 +580,11 @@ void Groth16Prover::setup(const R1CS& circuit, ProvingKey& pk, VerificationKey& 
     Fr zh_tau = vanish; // already computed as tau^n - 1
     Fr zh_delta_inv = zh_tau * delta_inv;
 
-    pk.H_query_scalars.resize(n, Fr::zero());
-    pk.H_query.clear();
-    tau_pow = zh_delta_inv; // τ^0 * Z_H(τ)/δ
+    pk.H_query_scalars.clear();
+    pk.H_query.resize(n);
+    Fr tau_pow = zh_delta_inv; // tau^0 * Z_H(tau)/delta
     for (int i = 0; i < n; i++) {
-        pk.H_query_scalars[i] = tau_pow;
+        pk.H_query[i] = g1j.scalar_mul(tau_pow).to_affine();
         tau_pow = tau_pow * tau;
     }
 
@@ -609,7 +622,16 @@ void Groth16Prover::setup(const R1CS& circuit, ProvingKey& pk, VerificationKey& 
     pk.num_variables = m;
     pk.num_public = num_pub;
     pk.is_streaming = false;
-    pk.materialized_points = false;
+    pk.materialized_points = true;
+
+    if (!keep_unsafe_trapdoor) {
+        // Best-effort wipe of temporary scalar-domain material before returning.
+        std::fill(A_at_tau.begin(), A_at_tau.end(), Fr::zero());
+        std::fill(B_at_tau.begin(), B_at_tau.end(), Fr::zero());
+        std::fill(C_at_tau.begin(), C_at_tau.end(), Fr::zero());
+        tau = Fr::zero(); alpha = Fr::zero(); beta = Fr::zero();
+        gamma = Fr::zero(); delta = Fr::zero();
+    }
 
     printf("[Setup] Complete. PK: %d G1 + %d G2 points, VK: %d IC points\n",
            (int)(pk.A_query.size() + pk.B_g1_query.size() + pk.L_query.size() + pk.H_query.size()),
@@ -701,8 +723,11 @@ Groth16Proof Groth16Prover::prove(const ProvingKey& pk,
     Fr A_scalar = Fr::zero();
     Fr B_scalar = Fr::zero();
     Fr C_scalar = Fr::zero();
+    const char* unsafe_scalar_prover = std::getenv("ZKML_UNSAFE_SCALAR_PROVER");
+    const bool allow_unsafe_scalar_prover = (unsafe_scalar_prover != nullptr &&
+                                              std::strcmp(unsafe_scalar_prover, "1") == 0);
     const bool use_scalar_queries =
-        pk.debug_trapdoor.available &&
+        allow_unsafe_scalar_prover && pk.debug_trapdoor.available &&
         (int)pk.A_query_scalars.size() >= m &&
         (int)pk.B_query_scalars.size() >= m;
 
@@ -731,6 +756,10 @@ Groth16Proof Groth16Prover::prove(const ProvingKey& pk,
         }
 
         Fr b_g1_scalar = pk.debug_trapdoor.beta + B_eval;
+        // B1 is the *unblinded* G1 analogue beta + sum(w_i B_i).
+        // Therefore s*A already contributes the single r*s*delta term required
+        // by the canonical Groth16 C expression; subtracting it here would
+        // over-correct and invalidate the pairing equation.
         C_scalar = priv_scalar + h_scalar + s_blind * A_scalar + r_blind * b_g1_scalar;
 
         proof.A = g1j.scalar_mul(A_scalar).to_affine();
@@ -803,6 +832,11 @@ Groth16Proof Groth16Prover::prove(const ProvingKey& pk,
             }
         }
 
+        // IMPORTANT: B_g1_jac above is B1 = beta + sum(w_i B_i), i.e. it does
+        // NOT include the s*delta blinding term.  With this convention, the
+        // canonical Groth16 expression is C = L + H + s*A + r*B1.  The
+        // r*s*delta contribution is already contained once inside s*A.
+        // Subtracting r*s*delta here would over-correct and break verification.
         proof.C = C_jac.to_affine();
     }
 
@@ -904,67 +938,25 @@ std::vector<Groth16Proof> Groth16Prover::batch_prove(
 }
 
 // ============================================================
-// Proof aggregation using random linear combination
+// Groth16 proof aggregation
 //
-// Given proofs π_1, ..., π_N with random challenges ρ_1, ..., ρ_N:
-// Aggregated proof:
-//   A_agg = Σ ρ_i · A_i
-//   B_agg = Σ ρ_i · B_i
-//   C_agg = Σ ρ_i · C_i
-//
-// This linear-combination aggregation is deterministic (fixed seed derivation)
-// and preserves compatibility with the existing proof structure.
+// IMPORTANT: a naive linear combination of (A,B,C) is NOT a generally sound
+// Groth16 aggregation protocol.  The previous research prototype exposed such
+// an API.  The 2026 hardened branch deliberately disables it rather than
+// returning a proof with an unsupported security claim.
 // ============================================================
 Groth16Proof Groth16Prover::aggregate_proofs(
     const std::vector<Groth16Proof>& proofs,
     const VerificationKey& vk,
     const std::vector<std::vector<Fr>>& public_inputs)
 {
-    printf("[Aggregate] Aggregating %d proofs\n", (int)proofs.size());
-
-    if (proofs.empty()) return Groth16Proof();
-
-    // Generate random challenges (deterministic Fiat-Shamir style seed)
-    uint64_t seed = 0x12345678ULL;
-    seed ^= (uint64_t)proofs.size() << 32;
-    seed ^= (uint64_t)vk.num_public;
-    seed ^= (uint64_t)public_inputs.size() * 0x9E3779B97F4A7C15ULL;
-    std::mt19937_64 rng(seed);
-    std::vector<Fr> rho(proofs.size());
-    rho[0] = Fr::from_uint(1); // first proof weight = 1
-    for (int i = 1; i < (int)proofs.size(); i++) {
-        rho[i] = Fr::from_uint(rng() & 0xFFFFFFFF);
-    }
-
-    // Aggregate A: A_agg = Σ ρ_i · A_i (MSM over G1)
-    std::vector<G1Affine> A_pts(proofs.size());
-    for (int i = 0; i < (int)proofs.size(); i++) {
-        A_pts[i] = proofs[i].A;
-    }
-    G1Jacobian A_agg = bn254::msm_g1(A_pts.data(), rho.data(), (int)proofs.size());
-
-    // Aggregate B over G2 with the same random coefficients
-    std::vector<G2Affine> B_pts(proofs.size());
-    for (int i = 0; i < (int)proofs.size(); i++) {
-        B_pts[i] = proofs[i].B;
-    }
-    G2Jacobian B_agg = bn254::msm_g2(B_pts.data(), rho.data(), (int)proofs.size());
-
-    // Aggregate C similarly
-    std::vector<G1Affine> C_pts(proofs.size());
-    for (int i = 0; i < (int)proofs.size(); i++) {
-        C_pts[i] = proofs[i].C;
-    }
-    G1Jacobian C_agg = bn254::msm_g1(C_pts.data(), rho.data(), (int)proofs.size());
-
-    Groth16Proof agg;
-    agg.A = A_agg.to_affine();
-    agg.B = B_agg.to_affine();
-    agg.C = C_agg.to_affine();
-    agg.valid = true;
-
-    printf("[Aggregate] Aggregated proof generated\n");
-    return agg;
+    (void)proofs;
+    (void)vk;
+    (void)public_inputs;
+    fprintf(stderr,
+            "[Aggregate] DISABLED: naive Groth16 linear aggregation is not sound. "
+            "Use independent verification or a separately specified aggregation protocol.\n");
+    return Groth16Proof();
 }
 
 // ============================================================
@@ -1030,14 +1022,12 @@ bool Groth16Verifier::verify(const VerificationKey& vk,
 }
 
 // ============================================================
-// Batch verification with random linear combination
+// Safe batch verification wrapper
 //
-// Instead of verifying each proof independently (4n pairings),
-// combine with random ρ_i and verify in one shot:
-//
-// Σ_i ρ_i * (e(-A_i, B_i) · e(α, β) · e(vk_x_i, γ) · e(C_i, δ))
-//
-// This reduces to fewer pairings using linearity of the pairing.
+// Groth16 pairings do not permit the previous naive random-linear shortcut when
+// B differs per proof.  Until a formally specified batch/aggregation protocol is
+// implemented, verify every proof independently.  This is slower but sound with
+// respect to the single-proof verifier.
 // ============================================================
 bool Groth16Verifier::batch_verify(
     const VerificationKey& vk,
@@ -1046,24 +1036,9 @@ bool Groth16Verifier::batch_verify(
 {
     if (proofs.size() != public_inputs.size()) return false;
 
-    printf("[Batch Verify] Verifying %d proofs with random linear combination\n",
+    printf("[Batch Verify] Safely verifying %d proofs independently\n",
            (int)proofs.size());
 
-    // Generate random challenges
-    std::mt19937_64 rng(0xBEEFCAFE);
-    std::vector<Fr> rho(proofs.size());
-    for (int i = 0; i < (int)proofs.size(); i++) {
-        rho[i] = Fr::from_uint(rng() & 0xFFFFFFFF);
-    }
-
-    // Aggregate: A_agg = Σ ρ_i * (-A_i), C_agg = Σ ρ_i * C_i
-    // vk_x_agg = Σ ρ_i * vk_x_i
-    G1Jacobian A_agg = G1Jacobian::identity();
-    G1Jacobian C_agg = G1Jacobian::identity();
-    G1Jacobian vkx_agg = G1Jacobian::identity();
-
-    // For B: we need Σ ρ_i * e(-A_i, B_i), which doesn't simplify easily
-    // unless all B_i are the same. For true batch verify, we check individually:
 
     bool all_valid = true;
     for (int i = 0; i < (int)proofs.size(); i++) {
@@ -1119,9 +1094,27 @@ Groth16Proof Groth16Proof::deserialize(const uint8_t* data, size_t len) {
 }
 
 // ============================================================
-// Streaming PK save/load
+// Hardened proving-key save/load (v3)
+//
+// SECURITY INVARIANT:
+//   Serialized proving keys contain group elements only.  They never contain
+//   tau/alpha/beta/gamma/delta or scalar-domain query exponents.  Legacy v2
+//   files intentionally fail closed because they embedded toxic material.
 // ============================================================
 bool ProvingKey::save(const char* path) const {
+    if (debug_trapdoor.available || !tau_powers_scalars.empty() ||
+        !A_query_scalars.empty() || !B_query_scalars.empty() ||
+        !L_query_scalars.empty() || !H_query_scalars.empty()) {
+        fprintf(stderr,
+                "[PK] Refusing to serialize scalar/trapdoor material. Re-run setup "
+                "without ZKML_UNSAFE_KEEP_TRAPDOOR.\n");
+        return false;
+    }
+    if (A_query.empty() || B_g1_query.empty() || B_g2_query.empty()) {
+        fprintf(stderr, "[PK] Refusing to save incomplete group proving key.\n");
+        return false;
+    }
+
     FILE* f = fopen(path, "wb");
     if (!f) {
         fprintf(stderr, "[PK] Failed to open %s for writing\n", path);
@@ -1129,63 +1122,38 @@ bool ProvingKey::save(const char* path) const {
     }
 
     bool ok = true;
-    const char magic[8] = {'Z', 'K', 'M', 'L', 'P', 'K', '2', '\0'};
-    const uint32_t version = 2;
+    const char magic[8] = {'Z', 'K', 'M', 'L', 'P', 'K', '3', '\0'};
+    const uint32_t version = 3;
 
     auto write_raw = [&](const void* ptr, size_t size, size_t count = 1) {
         if (!ok) return;
         ok = (fwrite(ptr, size, count, f) == count);
     };
-
-    auto write_i32 = [&](int32_t v) {
-        write_raw(&v, sizeof(v));
-    };
-
-    auto write_u32 = [&](uint32_t v) {
-        write_raw(&v, sizeof(v));
-    };
-
-    auto write_u8 = [&](uint8_t v) {
-        write_raw(&v, sizeof(v));
-    };
-
-    auto write_fr = [&](const Fr& v) {
-        uint64_t std[4];
-        v.to_standard(std);
-        write_raw(std, sizeof(uint64_t), 4);
-    };
-
+    auto write_i32 = [&](int32_t v) { write_raw(&v, sizeof(v)); };
+    auto write_u32 = [&](uint32_t v) { write_raw(&v, sizeof(v)); };
     auto write_fp = [&](const Fp& v) {
         uint64_t std[4];
         v.to_standard(std);
         write_raw(std, sizeof(uint64_t), 4);
     };
-
-    auto write_g1 = [&](const G1Affine& p) {
-        write_fp(p.x);
-        write_fp(p.y);
+    auto write_g1 = [&](const G1Affine& q) {
+        uint8_t infinity = q.infinity ? 1 : 0;
+        write_raw(&infinity, sizeof(infinity));
+        write_fp(q.x); write_fp(q.y);
     };
-
-    auto write_g2 = [&](const G2Affine& p) {
-        write_fp(p.x.c0);
-        write_fp(p.x.c1);
-        write_fp(p.y.c0);
-        write_fp(p.y.c1);
+    auto write_g2 = [&](const G2Affine& q) {
+        uint8_t infinity = q.infinity ? 1 : 0;
+        write_raw(&infinity, sizeof(infinity));
+        write_fp(q.x.c0); write_fp(q.x.c1);
+        write_fp(q.y.c0); write_fp(q.y.c1);
     };
-
-    auto write_vec_fr = [&](const std::vector<Fr>& vec) {
-        write_i32((int32_t)vec.size());
-        for (const Fr& v : vec) write_fr(v);
-    };
-
     auto write_vec_g1 = [&](const std::vector<G1Affine>& vec) {
         write_i32((int32_t)vec.size());
-        for (const auto& p : vec) write_g1(p);
+        for (const auto& q : vec) write_g1(q);
     };
-
     auto write_vec_g2 = [&](const std::vector<G2Affine>& vec) {
         write_i32((int32_t)vec.size());
-        for (const auto& p : vec) write_g2(p);
+        for (const auto& q : vec) write_g2(q);
     };
 
     write_raw(magic, sizeof(magic));
@@ -1193,7 +1161,6 @@ bool ProvingKey::save(const char* path) const {
     write_i32(num_constraints);
     write_i32(num_variables);
     write_i32(num_public);
-    write_u8(debug_trapdoor.available ? 1 : 0);
 
     write_g1(alpha_g1);
     write_g1(beta_g1);
@@ -1201,18 +1168,6 @@ bool ProvingKey::save(const char* path) const {
     write_g2(beta_g2);
     write_g2(gamma_g2);
     write_g2(delta_g2);
-
-    write_fr(debug_trapdoor.tau);
-    write_fr(debug_trapdoor.alpha);
-    write_fr(debug_trapdoor.beta);
-    write_fr(debug_trapdoor.gamma);
-    write_fr(debug_trapdoor.delta);
-
-    write_vec_fr(tau_powers_scalars);
-    write_vec_fr(A_query_scalars);
-    write_vec_fr(B_query_scalars);
-    write_vec_fr(L_query_scalars);
-    write_vec_fr(H_query_scalars);
 
     write_vec_g1(tau_powers_g1);
     write_vec_g2(tau_powers_g2);
@@ -1228,14 +1183,7 @@ bool ProvingKey::save(const char* path) const {
         return false;
     }
 
-    printf("[PK] Saved to %s (scalars=%d/%d/%d/%d/%d, materialized=%s)\n",
-           path,
-           (int)tau_powers_scalars.size(),
-           (int)A_query_scalars.size(),
-           (int)B_query_scalars.size(),
-           (int)L_query_scalars.size(),
-           (int)H_query_scalars.size(),
-           materialized_points ? "YES" : "NO");
+    printf("[PK] Saved hardened v3 proving key to %s (group elements only)\n", path);
     return true;
 }
 
@@ -1247,20 +1195,7 @@ bool ProvingKey::load_streaming(const char* path) {
         return false;
     }
 
-#if defined(_WIN32)
-    _fseeki64(f, 0, SEEK_END);
-    long long raw_size = _ftelli64(f);
-    _fseeki64(f, 0, SEEK_SET);
-#else
-    fseeko(f, 0, SEEK_END);
-    long long raw_size = ftello(f);
-    fseeko(f, 0, SEEK_SET);
-#endif
-    size_t file_size = raw_size > 0 ? (size_t)raw_size : 0;
-
-    const bool prefer_streaming = file_size > gpu_config::VRAM_BUDGET;
-    is_streaming = prefer_streaming;
-
+    // Fail closed and clear all secret/scalar state first.
     tau_powers_scalars.clear();
     A_query_scalars.clear();
     B_query_scalars.clear();
@@ -1274,6 +1209,7 @@ bool ProvingKey::load_streaming(const char* path) {
     L_query.clear();
     H_query.clear();
     materialized_points = false;
+    is_streaming = false;
     debug_trapdoor = DebugTrapdoor();
 
     bool ok = true;
@@ -1281,194 +1217,99 @@ bool ProvingKey::load_streaming(const char* path) {
         if (!ok) return;
         ok = (fread(ptr, size, count, f) == count);
     };
-
     auto read_i32 = [&]() -> int32_t {
-        int32_t v = 0;
-        read_raw(&v, sizeof(v));
-        return v;
+        int32_t v = 0; read_raw(&v, sizeof(v)); return v;
     };
-
     auto read_u32 = [&]() -> uint32_t {
-        uint32_t v = 0;
-        read_raw(&v, sizeof(v));
-        return v;
+        uint32_t v = 0; read_raw(&v, sizeof(v)); return v;
     };
-
-    auto read_u8 = [&]() -> uint8_t {
-        uint8_t v = 0;
-        read_raw(&v, sizeof(v));
-        return v;
-    };
-
-    auto read_fr = [&]() -> Fr {
-        uint64_t limbs[4] = {0, 0, 0, 0};
-        read_raw(limbs, sizeof(uint64_t), 4);
-        Fr out;
-        Fr::mont_mul_fr(out.val, limbs, Fr::r_squared().val);
-        return out;
-    };
-
     auto read_fp = [&]() -> Fp {
         uint64_t limbs[4] = {0, 0, 0, 0};
         read_raw(limbs, sizeof(uint64_t), 4);
         return Fp::from_standard(limbs[0], limbs[1], limbs[2], limbs[3]);
     };
-
     auto read_g1 = [&]() -> G1Affine {
-        return G1Affine(read_fp(), read_fp());
+        uint8_t infinity = 0; read_raw(&infinity, sizeof(infinity));
+        Fp x = read_fp(); Fp y = read_fp();
+        if (infinity) return G1Affine();
+        return G1Affine(x, y);
     };
-
     auto read_g2 = [&]() -> G2Affine {
-        Fp x0 = read_fp();
-        Fp x1 = read_fp();
-        Fp y0 = read_fp();
-        Fp y1 = read_fp();
+        uint8_t infinity = 0; read_raw(&infinity, sizeof(infinity));
+        Fp x0 = read_fp(); Fp x1 = read_fp();
+        Fp y0 = read_fp(); Fp y1 = read_fp();
+        if (infinity) return G2Affine();
         return G2Affine(bn254::Fp2(x0, x1), bn254::Fp2(y0, y1));
     };
-
-    auto read_vec_fr = [&](std::vector<Fr>& vec) {
+    auto read_vec_g1 = [&](std::vector<G1Affine>& vec) {
         int32_t n = read_i32();
-        if (!ok || n < 0) {
-            ok = false;
-            return;
-        }
-        vec.resize((size_t)n);
-        for (int32_t i = 0; i < n; i++) vec[(size_t)i] = read_fr();
-    };
-
-    auto skip_bytes = [&](size_t count) {
-        if (!ok) return;
-#if defined(_WIN32)
-        ok = (_fseeki64(f, (long long)count, SEEK_CUR) == 0);
-#else
-        ok = (fseeko(f, (off_t)count, SEEK_CUR) == 0);
-#endif
-    };
-
-    auto read_or_skip_vec_g1 = [&](std::vector<G1Affine>& vec, bool load_points) {
-        int32_t n = read_i32();
-        if (!ok || n < 0) {
-            ok = false;
-            return;
-        }
-        if (!load_points) {
-            vec.clear();
-            skip_bytes((size_t)n * 2 * 4 * sizeof(uint64_t));
-            return;
-        }
+        if (!ok || n < 0 || n > (1 << 28)) { ok = false; return; }
         vec.resize((size_t)n);
         for (int32_t i = 0; i < n; i++) vec[(size_t)i] = read_g1();
     };
-
-    auto read_or_skip_vec_g2 = [&](std::vector<G2Affine>& vec, bool load_points) {
+    auto read_vec_g2 = [&](std::vector<G2Affine>& vec) {
         int32_t n = read_i32();
-        if (!ok || n < 0) {
-            ok = false;
-            return;
-        }
-        if (!load_points) {
-            vec.clear();
-            skip_bytes((size_t)n * 4 * 4 * sizeof(uint64_t));
-            return;
-        }
+        if (!ok || n < 0 || n > (1 << 28)) { ok = false; return; }
         vec.resize((size_t)n);
         for (int32_t i = 0; i < n; i++) vec[(size_t)i] = read_g2();
     };
 
     char magic[8] = {0};
     read_raw(magic, sizeof(magic));
-    bool new_format = ok && std::memcmp(magic, "ZKMLPK2", 7) == 0;
-
-    if (new_format) {
-        uint32_t version = read_u32();
-        if (!ok || version != 2) {
-            fclose(f);
-            fprintf(stderr, "[PK] Unsupported PK version in %s\n", path);
-            return false;
-        }
-
-        num_constraints = read_i32();
-        num_variables = read_i32();
-        num_public = read_i32();
-        debug_trapdoor.available = (read_u8() != 0);
-
-        alpha_g1 = read_g1();
-        beta_g1 = read_g1();
-        delta_g1 = read_g1();
-        beta_g2 = read_g2();
-        gamma_g2 = read_g2();
-        delta_g2 = read_g2();
-
-        debug_trapdoor.tau = read_fr();
-        debug_trapdoor.alpha = read_fr();
-        debug_trapdoor.beta = read_fr();
-        debug_trapdoor.gamma = read_fr();
-        debug_trapdoor.delta = read_fr();
-
-        read_vec_fr(tau_powers_scalars);
-        read_vec_fr(A_query_scalars);
-        read_vec_fr(B_query_scalars);
-        read_vec_fr(L_query_scalars);
-        read_vec_fr(H_query_scalars);
-
-        const bool load_points = !prefer_streaming;
-        read_or_skip_vec_g1(tau_powers_g1, load_points);
-        read_or_skip_vec_g2(tau_powers_g2, load_points);
-        read_or_skip_vec_g1(A_query, load_points);
-        read_or_skip_vec_g1(B_g1_query, load_points);
-        read_or_skip_vec_g2(B_g2_query, load_points);
-        read_or_skip_vec_g1(L_query, load_points);
-        read_or_skip_vec_g1(H_query, load_points);
-
-        materialized_points = load_points &&
-            (!A_query.empty() || !B_g1_query.empty() || !B_g2_query.empty() ||
-             !L_query.empty() || !H_query.empty() || !tau_powers_g1.empty() ||
-             !tau_powers_g2.empty());
-    } else {
-        // Legacy format fallback: only G1 point vectors and limited metadata.
-        if (fseek(f, 0, SEEK_SET) != 0) {
-            fclose(f);
-            fprintf(stderr, "[PK] Failed to rewind %s\n", path);
-            return false;
-        }
-
-        int32_t header[4] = {0, 0, 0, 0};
-        read_raw(header, sizeof(int32_t), 4);
-        num_constraints = header[0];
-        num_variables = header[1];
-        num_public = header[2];
-
-        alpha_g1 = read_g1();
-        beta_g1 = read_g1();
-        delta_g1 = read_g1();
-
-        const bool load_points = !prefer_streaming;
-        read_or_skip_vec_g1(A_query, load_points);
-        read_or_skip_vec_g1(B_g1_query, load_points);
-        read_or_skip_vec_g1(L_query, load_points);
-        read_or_skip_vec_g1(H_query, load_points);
-        read_or_skip_vec_g1(tau_powers_g1, load_points);
-
-        materialized_points = load_points &&
-            (!A_query.empty() || !B_g1_query.empty() || !L_query.empty() ||
-             !H_query.empty() || !tau_powers_g1.empty());
-        debug_trapdoor.available = false;
+    if (!ok || std::memcmp(magic, "ZKMLPK3", 7) != 0) {
+        fclose(f);
+        fprintf(stderr,
+                "[PK] Refusing legacy/unknown proving key %s. v2 files contained "
+                "trapdoor/scalar material; regenerate setup to produce v3.\n", path);
+        return false;
     }
 
-    fclose(f);
+    uint32_t version = read_u32();
+    if (!ok || version != 3) {
+        fclose(f);
+        fprintf(stderr, "[PK] Unsupported proving-key version in %s\n", path);
+        return false;
+    }
 
+    num_constraints = read_i32();
+    num_variables = read_i32();
+    num_public = read_i32();
+    if (!ok || num_constraints < 0 || num_variables <= 0 || num_public < 0) {
+        fclose(f);
+        fprintf(stderr, "[PK] Invalid proving-key metadata in %s\n", path);
+        return false;
+    }
+
+    alpha_g1 = read_g1();
+    beta_g1 = read_g1();
+    delta_g1 = read_g1();
+    beta_g2 = read_g2();
+    gamma_g2 = read_g2();
+    delta_g2 = read_g2();
+
+    read_vec_g1(tau_powers_g1);
+    read_vec_g2(tau_powers_g2);
+    read_vec_g1(A_query);
+    read_vec_g1(B_g1_query);
+    read_vec_g2(B_g2_query);
+    read_vec_g1(L_query);
+    read_vec_g1(H_query);
+
+    fclose(f);
     if (!ok) {
         fprintf(stderr, "[PK] Failed while reading %s\n", path);
         return false;
     }
 
-    if (prefer_streaming) {
-        printf("[PK] Loaded %s in streaming mode (%.1f MB). Scalar queries materialized, point queries left on disk.\n",
-               path, file_size / 1e6);
-    } else {
-        printf("[PK] Loaded %s fully into memory (%.1f MB).\n", path, file_size / 1e6);
+    if ((int)A_query.size() < num_variables ||
+        (int)B_g1_query.size() < num_variables ||
+        (int)B_g2_query.size() < num_variables) {
+        fprintf(stderr, "[PK] Incomplete v3 proving key in %s\n", path);
+        return false;
     }
 
+    materialized_points = true;
+    printf("[PK] Loaded hardened v3 proving key from %s (group elements only)\n", path);
     return true;
 }
 

@@ -17,7 +17,7 @@ Usage:
     assert prover.verify(proof)
 """
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"
 __author__ = "CUDA-zkML Team"
 
 from .artifacts import (
@@ -41,3 +41,17 @@ __all__ = [
     "export_solidity_bundle",
     "load_public_inputs",
 ]
+
+from .adaptive import (
+    PathSpec, AdaptivePolicy, AdaptiveEvaluation, calibrate_policy,
+    evaluate_policy, route_indices, estimate_r1cs_constraints,
+)
+
+from .pcani_protocol import (
+    ManifestPath, ProtocolManifest, VerificationReport, verify_route_bundle,
+)
+
+from .pcani_protocol_v2 import (
+    SingleProofVerificationReport, verify_single_proof_certificate,
+    make_single_proof_certificate,
+)

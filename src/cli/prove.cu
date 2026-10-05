@@ -1,6 +1,8 @@
 #include "common.cuh"
 #include "prover/groth16.cuh"
 #include "prover/witness.cuh"
+#include "prover/statement_v2.cuh"
+#include "prover/r1cs_export.cuh"
 #include "verifier/verifier.cuh"
 #include "nn/inference.cuh"
 #include <algorithm>
@@ -8,6 +10,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <cctype>
+#include <cmath>
 #include <fstream>
 #include <regex>
 #include <sstream>
@@ -84,6 +87,14 @@ static bool parse_layer_type(const std::string& type, zkml::LayerType& out) {
     }
     if (lower == "self_attention" || lower == "attention" || lower == "transformer_attention") {
         out = zkml::LayerType::SELF_ATTENTION;
+        return true;
+    }
+    if (lower == "relu_exact") {
+        out = zkml::LayerType::RELU_EXACT;
+        return true;
+    }
+    if (lower == "conv2d" || lower == "conv") {
+        out = zkml::LayerType::CONV2D;
         return true;
     }
     return false;
@@ -204,7 +215,36 @@ static bool load_architecture_json(const std::string& path,
             }
         }
 
-        specs.push_back({type, in_size, out_size, seq_len, hidden_size, num_heads});
+        zkml::NNModel::LayerSpec spec{type, in_size, out_size, seq_len, hidden_size, num_heads};
+        if (type == zkml::LayerType::RELU_EXACT) {
+            int bits = 32, shift = 0;
+            extract_json_int_field(object_text, "bits", bits);
+            extract_json_int_field(object_text, "shift", shift);
+            if (bits < 2 || bits > 62 || shift < 0 || shift >= bits || in_size != out_size) {
+                fprintf(stderr, "[Model] relu_exact needs 2 <= bits <= 62, 0 <= shift < bits, in == out\n");
+                return false;
+            }
+            spec.relu_exact.bits = bits;
+            spec.relu_exact.shift = shift;
+        } else if (type == zkml::LayerType::CONV2D) {
+            zkml::Conv2DParams c;
+            int k = 0;
+            bool ok = extract_json_int_field(object_text, "in_channels", c.in_c) &&
+                      extract_json_int_field(object_text, "in_height", c.in_h) &&
+                      extract_json_int_field(object_text, "in_width", c.in_w) &&
+                      extract_json_int_field(object_text, "out_channels", c.out_c) &&
+                      extract_json_int_field(object_text, "kernel_size", k);
+            c.kh = c.kw = k;
+            extract_json_int_field(object_text, "stride", c.stride);
+            extract_json_int_field(object_text, "padding", c.pad);
+            if (!ok || k <= 0 || c.stride <= 0 || c.in_size() != in_size || c.out_size() != out_size) {
+                fprintf(stderr, "[Model] conv2d needs in_channels/in_height/in_width/out_channels/kernel_size "
+                                "consistent with in_features/out_features\n");
+                return false;
+            }
+            spec.conv = c;
+        }
+        specs.push_back(spec);
     }
 
     if (specs.empty()) {
@@ -265,6 +305,22 @@ static bool load_float32_binary(const std::string& path, std::vector<float>& out
     }
     out.resize((size_t)sz / sizeof(float));
     size_t n = fread(out.data(), sizeof(float), out.size(), f);
+    fclose(f);
+    return n == out.size();
+}
+
+static bool load_int32_binary(const std::string& path, std::vector<int32_t>& out) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+    fseek(f, 0, SEEK_END);
+    long sz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (sz <= 0 || (sz % (long)sizeof(int32_t)) != 0) {
+        fclose(f);
+        return false;
+    }
+    out.resize((size_t)sz / sizeof(int32_t));
+    size_t n = fread(out.data(), sizeof(int32_t), out.size(), f);
     fclose(f);
     return n == out.size();
 }
@@ -345,6 +401,35 @@ static bool load_input_float32_auto(const std::string& path, std::vector<float>&
     return load_float32_binary(path, out);
 }
 
+static std::string uint256_limbs_to_decimal(const uint64_t in_limbs[4]) {
+    // Portable base-2^32 long division: avoids compiler-specific 128-bit host
+    // integers and therefore works with both GCC/Clang and MSVC-hosted NVCC.
+    uint32_t words[8];
+    for (int i = 0; i < 4; ++i) {
+        words[2 * i] = (uint32_t)(in_limbs[i] & 0xffffffffULL);
+        words[2 * i + 1] = (uint32_t)(in_limbs[i] >> 32);
+    }
+    auto nonzero = [&]() {
+        uint32_t x = 0;
+        for (uint32_t w : words) x |= w;
+        return x != 0;
+    };
+    if (!nonzero()) return "0";
+
+    std::string digits;
+    while (nonzero()) {
+        uint64_t rem = 0;
+        for (int i = 7; i >= 0; --i) {
+            uint64_t cur = (rem << 32) | words[i];
+            words[i] = (uint32_t)(cur / 10ULL);
+            rem = cur % 10ULL;
+        }
+        digits.push_back((char)('0' + (int)rem));
+    }
+    std::reverse(digits.begin(), digits.end());
+    return digits;
+}
+
 static bool save_public_inputs_json(const std::vector<bn254::Fr>& inputs,
                                     const std::string& path) {
     std::ofstream out(path);
@@ -354,7 +439,10 @@ static bool save_public_inputs_json(const std::vector<bn254::Fr>& inputs,
     for (size_t i = 0; i < inputs.size(); i++) {
         uint64_t limbs[4] = {0, 0, 0, 0};
         inputs[i].to_standard(limbs);
-        out << limbs[0]; // low-limb decimal for lightweight interoperability
+        // Emit the full scalar-field representative.  Older releases emitted
+        // only the low 64-bit limb, which was lossy for negative/large Fr
+        // values and therefore unsuitable for PCANI statement artifacts.
+        out << uint256_limbs_to_decimal(limbs);
         if (i + 1 < inputs.size()) out << ", ";
     }
     out << "]\n";
@@ -362,11 +450,82 @@ static bool save_public_inputs_json(const std::vector<bn254::Fr>& inputs,
 }
 
 static bn254::Fr fp_to_fr_scalar(const bn254::Fp& v) {
-    uint64_t std_val[4];
-    v.to_standard(std_val);
-    bn254::Fr fr_val;
-    bn254::Fr::mont_mul_fr(fr_val.val, std_val, bn254::Fr::r_squared().val);
-    return fr_val;
+    // Preserve the signed integer meaning when moving Fp -> Fr.  Copying
+    // the canonical Fp representative directly is wrong for negative
+    // integers because the base-field and scalar-field moduli differ.
+    const int64_t signed_value = static_cast<int64_t>(zkml::fp_to_int(v));
+    if (signed_value >= 0) {
+        return bn254::Fr::from_uint(static_cast<uint64_t>(signed_value));
+    }
+    return -bn254::Fr::from_uint(static_cast<uint64_t>(-signed_value));
+}
+
+static uint64_t fnv1a64_update(uint64_t h, const void* data, size_t n) {
+    const unsigned char* p = static_cast<const unsigned char*>(data);
+    for (size_t i = 0; i < n; i++) {
+        h ^= (uint64_t)p[i];
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+// Stable audit identifier for the *quantized* model encoded into a fixed-model
+// circuit.  Security does not rely on FNV: exact model binding comes from the
+// model parameters being circuit coefficients and therefore from the Groth16
+// proving/verification keys.  The tag simply makes the bound model explicit in
+// public artifacts and route bundles.
+static uint64_t compute_quantized_model_tag64(const zkml::NNModel& model) {
+    uint64_t h = 1469598103934665603ULL;
+    const uint32_t version = 1;
+    h = fnv1a64_update(h, &version, sizeof(version));
+    for (const auto& layer : model.layers) {
+        uint32_t type = (uint32_t)layer.type;
+        h = fnv1a64_update(h, &type, sizeof(type));
+        h = fnv1a64_update(h, &layer.in_size, sizeof(layer.in_size));
+        h = fnv1a64_update(h, &layer.out_size, sizeof(layer.out_size));
+        auto hash_fp = [&](const bn254::Fp& v) {
+            uint64_t limbs[4] = {0, 0, 0, 0};
+            v.to_standard(limbs);
+            h = fnv1a64_update(h, limbs, sizeof(limbs));
+        };
+        auto hash_vec = [&](const std::vector<bn254::Fp>& vec) {
+            uint64_t n = (uint64_t)vec.size();
+            h = fnv1a64_update(h, &n, sizeof(n));
+            for (const auto& v : vec) hash_fp(v);
+        };
+        if (layer.type == zkml::LayerType::LINEAR) {
+            hash_vec(layer.weights);
+            hash_vec(layer.bias);
+        } else if (layer.type == zkml::LayerType::CONV2D) {
+            const int dims[8] = {layer.conv.in_c, layer.conv.in_h, layer.conv.in_w, layer.conv.out_c,
+                                 layer.conv.kh, layer.conv.kw, layer.conv.stride, layer.conv.pad};
+            h = fnv1a64_update(h, dims, sizeof(dims));
+            hash_vec(layer.weights);
+            hash_vec(layer.bias);
+        } else if (layer.type == zkml::LayerType::RELU_EXACT) {
+            h = fnv1a64_update(h, &layer.relu_exact.bits, sizeof(int));
+            h = fnv1a64_update(h, &layer.relu_exact.shift, sizeof(int));
+        } else if (layer.type == zkml::LayerType::RELU_APPROX) {
+            hash_fp(layer.relu_params.c0); hash_fp(layer.relu_params.c1);
+            hash_fp(layer.relu_params.c2); hash_fp(layer.relu_params.c3);
+            hash_fp(layer.relu_params.scale);
+        } else if (layer.type == zkml::LayerType::SELF_ATTENTION) {
+            h = fnv1a64_update(h, &layer.attention_params.seq_len, sizeof(int));
+            h = fnv1a64_update(h, &layer.attention_params.hidden_size, sizeof(int));
+            h = fnv1a64_update(h, &layer.attention_params.num_heads, sizeof(int));
+            hash_vec(layer.q_weights); hash_vec(layer.q_bias);
+            hash_vec(layer.k_weights); hash_vec(layer.k_bias);
+            hash_vec(layer.v_weights); hash_vec(layer.v_bias);
+            hash_vec(layer.o_weights); hash_vec(layer.o_bias);
+        }
+    }
+    return h;
+}
+
+static std::vector<bn254::Fr> fp_vec_to_fr(const std::vector<bn254::Fp>& src) {
+    std::vector<bn254::Fr> out(src.size());
+    for (size_t i = 0; i < src.size(); i++) out[i] = fp_to_fr_scalar(src[i]);
+    return out;
 }
 
 static bool build_circuit_for_model(zkml::CircuitBuilder& builder,
@@ -440,6 +599,112 @@ static bool build_circuit_for_model(zkml::CircuitBuilder& builder,
     }
 
     builder.finalize(public_output_size, input_size);
+    return true;
+}
+
+static bool build_fixed_model_circuit(zkml::CircuitBuilder& builder,
+                                      const zkml::NNModel& model,
+                                      int input_size,
+                                      const bn254::Fr& model_tag,
+                                      bool public_input) {
+    if (model.layers.empty()) {
+        fprintf(stderr, "[Circuit/fixed] Model has no layers\n");
+        return false;
+    }
+    const int public_output_size = zkml::circuit_public_output_size(model);
+    if (public_output_size <= 0) {
+        fprintf(stderr, "[Circuit/fixed] Could not determine public outputs\n");
+        return false;
+    }
+
+    std::vector<int> public_output_vars(public_output_size);
+    for (int i = 0; i < public_output_size; i++) public_output_vars[i] = builder.alloc_var();
+
+    // Explicit public model identifier.  The equality to a fixed circuit
+    // constant makes substitution visible; the actual exact-model binding is
+    // stronger and comes from fixed model coefficients throughout the circuit.
+    const int model_tag_var = builder.alloc_var();
+    builder.circuit.add_linear_constraint({{0, model_tag}}, {{model_tag_var, bn254::Fr::one()}});
+
+    std::vector<int> current_vars(input_size);
+    for (int i = 0; i < input_size; i++) current_vars[i] = builder.alloc_var();
+
+    for (int layer_idx = 0; layer_idx < (int)model.layers.size(); layer_idx++) {
+        const auto& layer = model.layers[layer_idx];
+        if (layer.type == zkml::LayerType::LINEAR) {
+            if ((int)current_vars.size() != layer.in_size) {
+                fprintf(stderr, "[Circuit/fixed] Linear layer size mismatch\n");
+                return false;
+            }
+            const auto weights = fp_vec_to_fr(layer.weights);
+            const auto bias = fp_vec_to_fr(layer.bias);
+            const bool use_public_outputs = zkml::is_last_circuit_layer(model, layer_idx) &&
+                                            layer.out_size == public_output_size;
+            if (use_public_outputs) {
+                current_vars = builder.add_fixed_linear_layer_into(
+                    current_vars, public_output_vars, weights, bias,
+                    layer.out_size, layer.in_size);
+            } else {
+                current_vars = builder.add_fixed_linear_layer(
+                    current_vars, weights, bias, layer.out_size, layer.in_size);
+            }
+            if (current_vars.empty()) return false;
+        } else if (layer.type == zkml::LayerType::RELU_APPROX) {
+            if ((int)current_vars.size() != layer.in_size) return false;
+            current_vars = builder.add_relu_approx(
+                current_vars, layer.in_size,
+                fp_to_fr_scalar(layer.relu_params.c0),
+                fp_to_fr_scalar(layer.relu_params.c1),
+                fp_to_fr_scalar(layer.relu_params.c2),
+                fp_to_fr_scalar(layer.relu_params.c3),
+                fp_to_fr_scalar(layer.relu_params.scale));
+        } else if (layer.type == zkml::LayerType::SELF_ATTENTION) {
+            current_vars = builder.add_fixed_self_attention_layer(
+                current_vars,
+                layer.attention_params.seq_len,
+                layer.attention_params.hidden_size,
+                layer.attention_params.num_heads,
+                fp_vec_to_fr(layer.q_weights), fp_vec_to_fr(layer.q_bias),
+                fp_vec_to_fr(layer.k_weights), fp_vec_to_fr(layer.k_bias),
+                fp_vec_to_fr(layer.v_weights), fp_vec_to_fr(layer.v_bias),
+                fp_vec_to_fr(layer.o_weights), fp_vec_to_fr(layer.o_bias));
+            if (current_vars.empty()) return false;
+        } else {
+            // Final softmax approximation is deliberately outside the R1CS
+            // statement; the public outputs are the pre-softmax score vector.
+            continue;
+        }
+    }
+
+    const int num_public = public_output_size + 1 + (public_input ? input_size : 0);
+    const int num_private = public_input ? 0 : input_size;
+    builder.finalize(num_public, num_private);
+    return true;
+}
+
+static bool save_statement_metadata(const std::string& path,
+                                    uint64_t model_tag64,
+                                    int num_outputs,
+                                    int input_size,
+                                    bool public_input,
+                                    int num_constraints,
+                                    int num_variables) {
+    std::ofstream out(path);
+    if (!out) return false;
+    out << "{\n";
+    out << "  \"statement_version\": 1,\n";
+    out << "  \"statement_mode\": \"pcani-fixed-model\",\n";
+    out << "  \"model_binding\": \"fixed-quantized-parameters-in-r1cs\",\n";
+    out << "  \"model_tag64\": \"0x" << std::hex << model_tag64 << std::dec << "\",\n";
+    out << "  \"input_visibility\": \"" << (public_input ? "public" : "private") << "\",\n";
+    out << "  \"public_output_count\": " << num_outputs << ",\n";
+    out << "  \"model_tag_public_index\": " << num_outputs << ",\n";
+    if (public_input) out << "  \"input_public_start_index\": " << (num_outputs + 1) << ",\n";
+    else out << "  \"input_public_start_index\": null,\n";
+    out << "  \"input_size\": " << input_size << ",\n";
+    out << "  \"r1cs_constraints\": " << num_constraints << ",\n";
+    out << "  \"r1cs_variables\": " << num_variables << "\n";
+    out << "}\n";
     return true;
 }
 
@@ -521,17 +786,32 @@ void print_usage() {
     printf("  zkml-prove --model MODEL --input INPUT --output PROOF\n");
     printf("             [--vk VK_FILE] [--public-inputs PI_FILE]\n");
     printf("             [--pk-save PK_FILE] [--pk-load PK_FILE] [--arch ARCH_JSON]\n");
+    printf("             [--pcani-statement] [--statement-meta META_JSON]\n");
     printf("  zkml-prove --demo\n");
     printf("\n");
     printf("Options:\n");
     printf("  --model FILE        Path to model (.bin or .onnx)\n");
     printf("  --input FILE        Path to input (.bin or .npy float32)\n");
+    printf("  --integer-model     Interpret --model as exact little-endian int32 parameters\n");
+    printf("  --integer-input     Interpret loaded float input values as exact signed integers\n");
     printf("  --output FILE       Path to write proof\n");
     printf("  --vk FILE           Path to write verification key\n");
     printf("  --public-inputs FILE Path to write public inputs\n");
     printf("  --arch FILE         Optional model architecture sidecar (.arch.json)\n");
     printf("  --pk-save FILE      Save proving key after setup for reuse\n");
     printf("  --pk-load FILE      Load proving key from disk instead of setup\n");
+    printf("  --pcani-statement   Exact-model circuit + public quantized input for linked PCANI proofs\n");
+    printf("  --statement-meta FILE  Write statement-layout metadata JSON (PCANI mode)\n");
+    printf("  --statement-v2      PCANI statement v2 (RELU_EXACT/CONV2D, options below)\n");
+    printf("    --context HEX         public anti-replay context H(session||nonce||time||policy)\n");
+    printf("    --private-input       inputs private, public Poseidon commitments\n");
+    printf("    --input-blinding HEX[,HEX..]  one blinding value per sample (with --private-input)\n");
+    printf("    --private-model       weights private, public Poseidon model commitment\n");
+    printf("    --route-threshold N   in-circuit routing: public [top1-top2 >= N] and top-1 class\n");
+    printf("    --private-outputs     hide scores (requires --route-threshold)\n");
+    printf("    --batch-inputs F1,F2  prove several samples in one proof (replaces --input)\n");
+    printf("  --export-r1cs FILE  write the circuit in iden3 .r1cs format (underconstraint tools)\n");
+    printf("  --export-wtns FILE  write the witness in iden3 .wtns format\n");
     printf("  --demo              Run demo with random MNIST MLP\n");
     printf("  --help              Show this help\n");
 }
@@ -670,6 +950,16 @@ int main(int argc, char** argv) {
     const char* arch_path = nullptr;
     const char* pk_save_path = nullptr;
     const char* pk_load_path = nullptr;
+    bool pcani_statement = false;
+    bool integer_model = false;
+    bool integer_input = false;
+    const char* statement_meta_path = nullptr;
+    bool statement_v2 = false;
+    zkml::StatementV2Options v2opt;
+    std::string blinding_list, batch_list;
+    bool route_set = false;
+    const char* export_r1cs_path = nullptr;
+    const char* export_wtns_path = nullptr;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--demo") == 0) {
@@ -693,7 +983,64 @@ int main(int argc, char** argv) {
             pk_save_path = argv[++i];
         } else if (strcmp(argv[i], "--pk-load") == 0 && i + 1 < argc) {
             pk_load_path = argv[++i];
+        } else if (strcmp(argv[i], "--pcani-statement") == 0) {
+            pcani_statement = true;
+        } else if (strcmp(argv[i], "--integer-model") == 0) {
+            integer_model = true;
+        } else if (strcmp(argv[i], "--integer-input") == 0) {
+            integer_input = true;
+        } else if (strcmp(argv[i], "--statement-meta") == 0 && i + 1 < argc) {
+            statement_meta_path = argv[++i];
+        } else if (strcmp(argv[i], "--statement-v2") == 0) {
+            statement_v2 = true;
+        } else if (strcmp(argv[i], "--context") == 0 && i + 1 < argc) {
+            v2opt.has_context = true;
+            if (!zkml::fr_from_hex(argv[++i], &v2opt.context)) {
+                fprintf(stderr, "--context expects a hex value\n");
+                return 1;
+            }
+        } else if (strcmp(argv[i], "--private-input") == 0) {
+            v2opt.private_input = true;
+        } else if (strcmp(argv[i], "--input-blinding") == 0 && i + 1 < argc) {
+            blinding_list = argv[++i];
+        } else if (strcmp(argv[i], "--private-model") == 0) {
+            v2opt.private_model = true;
+        } else if (strcmp(argv[i], "--private-outputs") == 0) {
+            v2opt.private_outputs = true;
+        } else if (strcmp(argv[i], "--route-threshold") == 0 && i + 1 < argc) {
+            v2opt.route = true;
+            route_set = true;
+            v2opt.route_threshold = std::atoll(argv[++i]);
+        } else if (strcmp(argv[i], "--batch-inputs") == 0 && i + 1 < argc) {
+            batch_list = argv[++i];
+        } else if (strcmp(argv[i], "--export-r1cs") == 0 && i + 1 < argc) {
+            export_r1cs_path = argv[++i];
+        } else if (strcmp(argv[i], "--export-wtns") == 0 && i + 1 < argc) {
+            export_wtns_path = argv[++i];
         }
+    }
+    (void)route_set;
+    auto split_csv = [](const std::string& text) {
+        std::vector<std::string> parts;
+        std::string cur;
+        for (char c : text) {
+            if (c == ',') { if (!cur.empty()) parts.push_back(cur); cur.clear(); }
+            else cur.push_back(c);
+        }
+        if (!cur.empty()) parts.push_back(cur);
+        return parts;
+    };
+    if (!statement_v2 && (v2opt.has_context || v2opt.private_input || v2opt.private_model ||
+                          v2opt.route || !batch_list.empty())) {
+        fprintf(stderr, "--context/--private-*/--route-threshold/--batch-inputs require --statement-v2\n");
+        return 1;
+    }
+    std::string first_batch_input;
+    if (!batch_list.empty() && !input_path) {
+        auto parts = split_csv(batch_list);
+        if (parts.empty()) { fprintf(stderr, "--batch-inputs is empty\n"); return 1; }
+        first_batch_input = parts[0];
+        input_path = first_batch_input.c_str();
     }
 
     if (demo) {
@@ -712,14 +1059,27 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Load model weights.
+    // Load model parameter payload.  The default path preserves the historical
+    // float32->quantized workflow.  --integer-model instead consumes exact
+    // signed int32 parameters for reproducible finite-field experiments.
     printf("Loading model from %s...\n", resolved_model_path.c_str());
     std::vector<float> model_data;
-    if (!load_float32_binary(resolved_model_path, model_data)) {
-        fprintf(stderr, "Cannot load model file: %s\n", resolved_model_path.c_str());
-        return 1;
+    std::vector<int32_t> integer_model_data;
+    if (integer_model) {
+        if (file_ext_lower(model_path) == ".onnx") {
+            fprintf(stderr, "--integer-model is not supported with ONNX conversion\n");
+            return 1;
+        }
+        if (!load_int32_binary(resolved_model_path, integer_model_data)) {
+            fprintf(stderr, "Cannot load int32 model file: %s\n", resolved_model_path.c_str());
+            return 1;
+        }
+    } else {
+        if (!load_float32_binary(resolved_model_path, model_data)) {
+            fprintf(stderr, "Cannot load model file: %s\n", resolved_model_path.c_str());
+            return 1;
+        }
     }
-    int num_floats = (int)model_data.size();
 
     // Load input (.bin or .npy float32)
     printf("Loading input from %s...\n", input_path);
@@ -744,16 +1104,50 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (!model.load_weights(model_data.data(), num_floats)) {
+    bool weights_ok = false;
+    if (integer_model) {
+        weights_ok = model.load_integer_weights(integer_model_data.data(), (int)integer_model_data.size());
+    } else {
+        weights_ok = model.load_weights(model_data.data(), (int)model_data.size());
+    }
+    if (!weights_ok) {
         fprintf(stderr, "Failed to load model weights\n");
         return 1;
     }
 
-    // Quantize input
-    float max_abs = zkml::find_max_abs(float_input.data(), input_size);
-    zkml::QuantConfig qcfg = zkml::QuantConfig::symmetric(8, max_abs);
+    auto to_fp_input = [&](const std::vector<float>& src, std::vector<bn254::Fp>& dst) -> bool {
+        dst.assign(src.size(), bn254::Fp::zero());
+        if (integer_input) {
+            for (size_t i = 0; i < src.size(); i++) {
+                double rounded = std::llround((double)src[i]);
+                if (std::fabs((double)src[i] - rounded) > 1e-5 ||
+                    rounded < (double)INT32_MIN || rounded > (double)INT32_MAX) return false;
+                dst[i] = zkml::int_to_fp((int32_t)rounded);
+            }
+        } else {
+            float max_abs = zkml::find_max_abs(src.data(), (int)src.size());
+            zkml::QuantConfig qcfg = zkml::QuantConfig::symmetric(8, max_abs);
+            zkml::quantize_array(dst.data(), src.data(), (int)src.size(), qcfg);
+        }
+        return true;
+    };
+
     std::vector<bn254::Fp> fp_input(input_size);
-    zkml::quantize_array(fp_input.data(), float_input.data(), input_size, qcfg);
+    if (integer_input) {
+        for (int i = 0; i < input_size; i++) {
+            double rounded = std::llround((double)float_input[i]);
+            if (std::fabs((double)float_input[i] - rounded) > 1e-5 ||
+                rounded < (double)INT32_MIN || rounded > (double)INT32_MAX) {
+                fprintf(stderr, "--integer-input requires exact int32-valued samples (index %d)\n", i);
+                return 1;
+            }
+            fp_input[i] = zkml::int_to_fp((int32_t)rounded);
+        }
+    } else {
+        float max_abs = zkml::find_max_abs(float_input.data(), input_size);
+        zkml::QuantConfig qcfg = zkml::QuantConfig::symmetric(8, max_abs);
+        zkml::quantize_array(fp_input.data(), float_input.data(), input_size, qcfg);
+    }
 
     CudaTimer timer;
 
@@ -767,16 +1161,87 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    zkml::Witness witness = zkml::generate_witness(model, trace, fp_input.data(), input_size);
+    const uint64_t model_tag64 = compute_quantized_model_tag64(model);
+    const bn254::Fr model_tag = bn254::Fr::from_uint(model_tag64);
 
+    zkml::Witness witness;
     zkml::CircuitBuilder builder;
-    if (!build_circuit_for_model(builder, model, input_size)) {
-        return 1;
+    zkml::StatementV2 st_v2;
+    if (statement_v2) {
+        std::vector<std::vector<bn254::Fp>> batch;
+        std::vector<std::string> files = batch_list.empty() ? std::vector<std::string>{input_path}
+                                                            : split_csv(batch_list);
+        for (const auto& fpath : files) {
+            std::vector<float> raw;
+            std::vector<bn254::Fp> q;
+            if (!load_input_float32_auto(fpath, raw) || (int)raw.size() != input_size || !to_fp_input(raw, q)) {
+                fprintf(stderr, "Cannot load batch input %s (size must be %d)\n", fpath.c_str(), input_size);
+                return 1;
+            }
+            batch.push_back(q);
+        }
+        if (v2opt.private_input) {
+            for (const auto& hx : split_csv(blinding_list)) {
+                bn254::Fr r;
+                if (!zkml::fr_from_hex(hx, &r)) { fprintf(stderr, "bad --input-blinding value\n"); return 1; }
+                v2opt.input_blinding.push_back(r);
+            }
+        }
+        v2opt.model_tag = model_tag;
+        std::string err;
+        printf("[PCANI v2] samples=%zu context=%s input=%s model=%s route=%s\n", batch.size(),
+               v2opt.has_context ? "bound" : "none", v2opt.private_input ? "committed" : "public",
+               v2opt.private_model ? "committed" : "fixed", v2opt.route ? "in-circuit" : "off");
+        if (!zkml::build_statement_v2(model, batch, v2opt, st_v2, err)) {
+            fprintf(stderr, "Failed to build PCANI v2 statement: %s\n", err.c_str());
+            return 1;
+        }
+        builder.circuit = st_v2.r1cs;
+        witness = st_v2.witness;
+        printf("[PCANI v2] R1CS: %d constraints, %d variables, %d public\n",
+               builder.circuit.num_constraints, builder.circuit.num_variables, st_v2.layout.num_public);
+    } else if (pcani_statement) {
+        for (const auto& l : model.layers) {
+            if (l.type == zkml::LayerType::RELU_EXACT || l.type == zkml::LayerType::CONV2D) {
+                fprintf(stderr, "RELU_EXACT/CONV2D layers require --statement-v2\n");
+                return 1;
+            }
+        }
+        printf("[PCANI] Building exact-model statement; quantized input is public for proof linkage.\n");
+        printf("[PCANI] Quantized model tag: 0x%016llx\n", (unsigned long long)model_tag64);
+        witness = zkml::generate_fixed_model_witness(
+            model, trace, fp_input.data(), input_size, model_tag, true);
+        if (!build_fixed_model_circuit(builder, model, input_size, model_tag, true)) {
+            fprintf(stderr, "Failed to build PCANI fixed-model circuit.\n");
+            return 1;
+        }
+    } else {
+        for (const auto& l : model.layers) {
+            if (l.type == zkml::LayerType::RELU_EXACT || l.type == zkml::LayerType::CONV2D) {
+                fprintf(stderr, "RELU_EXACT/CONV2D layers require --statement-v2\n");
+                return 1;
+            }
+        }
+        witness = zkml::generate_witness(model, trace, fp_input.data(), input_size);
+        if (!build_circuit_for_model(builder, model, input_size)) {
+            return 1;
+        }
     }
 
     bool sat = builder.circuit.verify_witness(witness.values);
     if (!sat) {
         fprintf(stderr, "Witness does not satisfy circuit constraints.\n");
+        return 1;
+    }
+    if (export_r1cs_path) {
+        if (!zkml::export_r1cs_iden3(builder.circuit, export_r1cs_path)) {
+            fprintf(stderr, "Failed to export R1CS to %s\n", export_r1cs_path);
+            return 1;
+        }
+        printf("[R1CS] exported %s (iden3 format)\n", export_r1cs_path);
+    }
+    if (export_wtns_path && !zkml::export_wtns_iden3(witness.values, export_wtns_path)) {
+        fprintf(stderr, "Failed to export witness to %s\n", export_wtns_path);
         return 1;
     }
 
@@ -842,6 +1307,22 @@ int main(int argc, char** argv) {
         zkml::save_public_inputs(pub, pi_path);
     }
 
+    if (statement_v2 && statement_meta_path) {
+        std::ofstream meta(statement_meta_path);
+        meta << zkml::statement_v2_meta_json(st_v2, v2opt, model_tag64);
+        printf("[PCANI v2] Statement metadata: %s\n", statement_meta_path);
+    }
+    if (pcani_statement && !statement_v2 && statement_meta_path) {
+        const int num_outputs = zkml::circuit_public_output_size(model);
+        if (!save_statement_metadata(
+                statement_meta_path, model_tag64, num_outputs, input_size, true,
+                builder.circuit.num_constraints, builder.circuit.num_variables)) {
+            fprintf(stderr, "Failed to save statement metadata: %s\n", statement_meta_path);
+            return 1;
+        }
+        printf("[PCANI] Statement metadata: %s\n", statement_meta_path);
+    }
+
     // Validate the on-disk artifacts immediately so file-format regressions are
     // caught by the prover before a separate verifier process is launched.
     if (file_ext_lower(pi_path) != ".json") {
@@ -870,6 +1351,11 @@ int main(int argc, char** argv) {
     printf("Verification time: %.2f ms\n", verify_ms);
     printf("Proof size: %zu bytes\n", proof.serialize().size());
 
+    if (statement_v2) {
+        printf("Statement mode: PCANI v2\n");
+    } else if (pcani_statement) {
+        printf("Statement mode: PCANI exact-model/public-input\n");
+    }
     printf("PROOF GENERATION COMPLETE.\n");
     printf("  Proof: %s\n", output_path);
     printf("  VK: %s\n", vk_path);

@@ -24,6 +24,9 @@ contract Groth16Verifier {
 
     // BN254 curve order
     uint256 constant PRIME_Q = 21888242871839275222246405745257275088696311157297823662689037894645226208583;
+    // Scalar field r: public inputs must be canonical (< r). Bounding them by q would
+    // let x and x + r verify alike (input aliasing), breaking replay protection.
+    uint256 constant PRIME_R = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
     // Verification key (set during deployment)
     struct VerifyingKey {
@@ -93,7 +96,7 @@ contract Groth16Verifier {
         uint256[2] memory vk_x = vk.ic[0];
 
         for (uint256 i = 0; i < publicInputs.length; i++) {
-            require(publicInputs[i] < PRIME_Q, "Public input exceeds field");
+            require(publicInputs[i] < PRIME_R, "Public input not in scalar field");
 
             // IC[i+1] * publicInputs[i]
             uint256[2] memory term = ecMul(vk.ic[i + 1], publicInputs[i]);
@@ -186,7 +189,7 @@ contract Groth16Verifier {
 
         uint256[2] memory vk_x = vk.ic[0];
         for (uint256 i = 0; i < publicInputs.length; i++) {
-            require(publicInputs[i] < PRIME_Q, "Public input exceeds field");
+            require(publicInputs[i] < PRIME_R, "Public input not in scalar field");
             vk_x = ecAdd(vk_x, ecMul(vk.ic[i + 1], publicInputs[i]));
         }
 

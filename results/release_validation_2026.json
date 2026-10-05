@@ -1,0 +1,42 @@
+{
+  "claim_boundary": "No new GPU timing, proof-cost saving, or novelty claim is made by this local packaging validation.",
+  "cuda_environment": {
+    "cuda_validation_possible_here": false,
+    "nvcc": null,
+    "nvidia_smi": null
+  },
+  "deterministic_digits_prepare_smoke": {
+    "candidate_test_accuracy": {
+      "p16": 0.7944444444444444,
+      "p160": 0.9694444444444444,
+      "p48": 0.9361111111111111,
+      "p96": 0.9638888888888889
+    },
+    "note": "Preparation only; these are not GPU/proof performance results.",
+    "status": "PASS"
+  },
+  "host_syntax_checks": {
+    "src/cli/prove.cu": "PASS with CUDA host stub",
+    "src/cli/verify.cu": "PASS with CUDA host stub",
+    "tests/test_fixed_statement.cu": "PASS with CUDA host stub"
+  },
+  "mandatory_next_step": "Run PCANI_Colab_Final_Validation.ipynb on NVIDIA GPU and return PCANI_final_results.zip.",
+  "python_compile": "PASS",
+  "python_test_suite": {
+    "failed": 0,
+    "passed": 30,
+    "skipped": 2
+  },
+  "release": "2026.09-PCANI-proofchain-rc1",
+  "static_security_checks": {
+    "exact_model_fixed_r1cs_path_present": true,
+    "full_width_public_json_serialization_present": true,
+    "groth16_rs_delta_correction_present": true,
+    "integer_model_trailing_payload_rejected": true,
+    "legacy_secret_bearing_pk_rejected": true,
+    "naive_aggregation_disabled": true,
+    "pcani_proof_chain_protocol_tests_pass": true,
+    "pk_v3_group_only_boundary": true
+  },
+  "status": "local_non_cuda_checks_pass"
+}

@@ -1,7 +1,11 @@
 # CUDA-zkML: GPU-Accelerated Zero-Knowledge Proofs for Neural Network Inference
 
 
-A CUDA-native system that generates zero-knowledge proofs for neural network inference. Proves that a model ran correctly on given inputs **without revealing the model weights or inputs**, using GPU parallelism for significant speedup over CPU-based tools.
+A CUDA-native research system for zero-knowledge proofs of neural-network inference, plus a 2026 research branch for **proof-cost-aware adaptive inference**. The hardened branch proves execution of the configured R1CS circuit with private witness values and removes secret proving-key scalars from persisted artifacts.
+
+**PCANI security scope:** protocol v1 uses a verified prefix proof chain. The 2026 T4 run showed that this is cryptographically valid but economically counterproductive because cumulative proving cost exceeds the full-model proof. Protocol v2 therefore emits **one model-specific Groth16 proof for the selected path** and verifies the path's calibrated acceptance predicate from proof-bound public scores. Verification-key digests and model tags pin the permitted exact model. Protocol v2 proves validity of the selected route; it does not prove that no cheaper route would also have been valid. Inputs and route scores remain public in this research release.
+
+**Performance scope:** GPU acceleration is implemented, but cross-system speedup claims are only valid for matched workloads. Historical EZKL/Orion rows in this repository are retained as engineering measurements and are not treated as apples-to-apples evidence unless workload signatures match.
 
 
 ## Project Metadata
@@ -148,10 +152,11 @@ Notes:
 ```
 
 Notes:
-- `--pk-save` stores a proving key with scalar query data for later reuse.
+- `--pk-save` now writes hardened **v3** proving keys containing group elements only.
+- v3 serialization refuses trapdoor values and scalar-domain query exponents.
+- legacy v2 proving keys are rejected because they could contain toxic setup material; regenerate setup instead.
 - `--pk-load` requires an existing `vk.bin` for verification and artifact checks.
-- Large proving keys automatically stay in streaming mode and only materialize the
-  scalar-domain queries needed by the current proving path.
+- true out-of-core/chunked proving-key execution remains future work; the loader no longer pretends skipped query points are usable.
 
 ### Python API
 
@@ -282,8 +287,7 @@ cuda-zkml/
 │   ├── test_e2e.py              # End-to-end pipeline
 │   ├── test_solidity_export.py  # Solidity artifact export coverage
 │   └── test_onchain_workflow.py # Local EVM verification workflow
-├── paper/
-│   └── cuda_zkml.tex            # arxiv-ready LaTeX paper
+├── tests/host/                 # no-GPU tests: gadgets, statement v2, MPC ceremony
 └── README.md
 ```
 
@@ -370,7 +374,7 @@ Generated benchmark artifacts:
 - optional external baselines can be provided as `benchmarks/baselines/ezkl.json`
   and `benchmarks/baselines/orion.json`
 
-Latest local measured snapshot on the tested laptop:
+Latest local measured snapshot on the tested laptop (historical engineering measurements; do not infer cross-system speedup unless the workload IDs/model/precision are matched):
 
 | System | Status | Inference (ms) | Setup (ms) | Prove (ms) | Verify (ms) | Proof Size |
 |--------|--------|----------------|------------|------------|-------------|------------|
@@ -405,8 +409,10 @@ shows a successful local EVM verification with:
 - KZG polynomial commitment scheme (commit via MSM, open via synthetic division)
 - Proper trusted setup with batch inversion for Lagrange denominators
 - Real pairing-based verification: e(-A,B)·e(α,β)·e(vk_x,γ)·e(C,δ) == 1
-- Proof aggregation via random linear combination with Fiat-Shamir challenges
-- Streaming proving key loader for PK > 3GB
+- Hardened v3 proving-key serialization: group elements only, no toxic scalar exponents
+- Groth16 `C` construction corrected for the repository's unblinded-`B1` convention (`C = L + H + s*A + r*B1`)
+- Safe multi-proof wrapper that verifies proofs independently
+- Naive linear-combination aggregation deliberately disabled pending a formally specified aggregation protocol
 
 ### MSM (Pippenger)
 - Window-based bucket accumulation with configurable window size
@@ -432,9 +438,52 @@ shows a successful local EVM verification with:
 - Tiny transformer self-attention path through the same prover/verifier flow
 - Stacked multi-head self-attention path through architecture sidecars
 
+### Proof-Cost-Aware Adaptive Inference (PCANI research branch)
+- `python/zkml/adaptive.py` calibrates deterministic routing thresholds under an accuracy-loss budget and supports both protocol-v1 `proof_chain` and protocol-v2 `selected_proof` cost semantics.
+- `zkml-prove --pcani-statement --integer-model --integer-input` builds an exact-model statement with model parameters fixed as R1CS coefficients.
+- `python/zkml/pcani_protocol.py` preserves the reproducible protocol-v1 proof-chain verifier.
+- `python/zkml/pcani_protocol_v2.py` and `python/pcani_verify_single.py` implement the protocol-v2 **single selected-proof route certificate**. The selected path must have a valid model-specific proof and, unless it is the full fallback, its proof-bound margin must clear the calibrated threshold.
+- `python/pcani_single_proof_finalize.py` re-analyzes a completed GPU run without inventing timings: it uses the measured standalone path prover medians and stored held-out logits to compute protocol-v2 cost/accuracy.
+- The completed 2026 T4 run measured median prover times of 1475.75/1628.66/1781.65/1884.02 ms for p16/p48/p96/p160. Protocol v1's cumulative-chain expected cost was 2899.95 ms (worse than p160). Protocol v2's selected-proof expected cost is 1602.51 ms, **14.94% lower than the static p160 proof**, at 96.11% held-out accuracy versus 96.94% for p160 (0.83 percentage-point drop).
+- Including measured sequential inference medians, the derived end-to-end estimate is 1737.06 ms versus 1958.48 ms for static p160, an **11.31% reduction**. This end-to-end figure is derived from measured component medians, not from a fresh monolithic protocol-v2 timing run.
+- Inputs and route scores are public; private-input/model-hiding extensions are not claimed.
+
 ### Solidity Verifier
 - On-chain Groth16 verification using EVM BN254 precompiles
 - ecAdd (0x06), ecMul (0x07), ecPairing (0x08)
 - Local `eth-tester` deployment and verification harness included
 
 
+
+## 2026 Research / Security Status
+
+The repository is split conceptually into two layers:
+
+1. **Hardened Groth16/CUDA foundation.** Persisted proving keys use group-only serialization; toxic setup scalars are not saved; legacy secret-bearing keys fail closed; unsupported linear aggregation is disabled; the Groth16 `C` construction matches the prover's unblinded-`B1` convention; and signed integer semantics are preserved when mapping network values from BN254 `Fp` into `Fr`.
+2. **PCANI algorithmic/protocol layer.** Protocol v1 is retained as the negative baseline discovered by the real GPU run. Protocol v2 uses a single selected-path proof certificate and measured selected-proof cost semantics.
+
+### Completed NVIDIA validation
+
+A Colab T4 run completed successfully after the fail-closed correctness checks exposed and fixed two implementation bugs (the Groth16 `C` convention and signed `Fp -> Fr` conversion). The final run verified exact CUDA/Python outputs, native Groth16 proofs, model-specific key pinning, proof-bound routing evidence, and 5 repeated prover measurements per path. Raw artifacts are stored under `results/gpu_validation_2026/`.
+
+The result is deliberately reported in two stages:
+
+- **Protocol v1 proof chain:** 96.11% adaptive accuracy, 0.83 pp below p160, but 2899.95 ms expected proof cost versus 1884.02 ms static; hypothesis rejected for v1.
+- **Protocol v2 single selected proof:** using the same measured per-path prover medians and held-out routing decisions, expected proof cost is 1602.51 ms, a 14.94% reduction. Representative chosen-path proofs were already native-verified in the GPU run and satisfy their selected-path acceptance predicates.
+
+See `docs/GPU_VALIDATION_RESULTS_2026.md`, `docs/PCANI_PROTOCOL_V2.md`, `docs/RESEARCH_STATUS_2026.md`, and `docs/NOVELTY_GATE_2026.md`. A systematic literature/patent audit and broader multi-GPU/multi-benchmark replication are still required before claiming established novelty or production security.
+
+### Statement v2 (roadmap phases 1-2, 2026-10)
+
+`zkml-prove --statement-v2` adds, without touching the v1 path above:
+
+- context-bound proofs (anti-replay);
+- exact in-circuit ReLU with range proofs (trained models);
+- native sparse `CONV2D`;
+- Poseidon-committed private model and private input, with in-circuit routing;
+- batching;
+- iden3 `.r1cs`/`.wtns` export.
+
+`zkml-ceremony` runs a Groth16 phase-2 MPC. Without CUDA these pieces are tested by
+`tests/host/run_host_tests.sh` and `pytest`. On a GPU, `PCANI_Colab_Phase12.ipynb`
+runs everything end to end. See `FUTURE_WORK_ROADMAP.md` and `docs/THREAT_MODEL.md`.

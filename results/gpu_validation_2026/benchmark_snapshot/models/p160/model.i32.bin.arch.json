@@ -1,0 +1,24 @@
+{
+  "layers": [
+    {
+      "type": "linear",
+      "in_features": 64,
+      "out_features": 160
+    },
+    {
+      "type": "relu",
+      "in_features": 160,
+      "out_features": 160
+    },
+    {
+      "type": "linear",
+      "in_features": 160,
+      "out_features": 10
+    },
+    {
+      "type": "softmax",
+      "in_features": 10,
+      "out_features": 10
+    }
+  ]
+}

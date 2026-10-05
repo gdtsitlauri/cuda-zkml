@@ -18,7 +18,10 @@ from typing import Any, BinaryIO, Dict, List, Sequence, Tuple
 LIMBS_PER_FIELD_ELEMENT = 4
 BYTES_PER_LIMB = 8
 BYTES_PER_FIELD_ELEMENT = LIMBS_PER_FIELD_ELEMENT * BYTES_PER_LIMB
-BN254_PRIME = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+BN254_BASE_FIELD = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+BN254_SCALAR_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617
+# Backward-compatibility alias for callers that used the old name for curve coordinates.
+BN254_PRIME = BN254_BASE_FIELD
 
 
 def _read_exact(stream: BinaryIO, size: int, label: str) -> bytes:
@@ -170,7 +173,7 @@ def load_public_inputs(path: str) -> List[int]:
             data = json.load(f)
         if not isinstance(data, list):
             raise ValueError("Public inputs JSON must be a list")
-        return [int(value) % BN254_PRIME for value in data]
+        return [int(value) % BN254_SCALAR_FIELD for value in data]
 
     with open(path, "rb") as f:
         n = _read_i32(f, "public_inputs.count")
@@ -261,7 +264,7 @@ def build_solidity_bundle(
     proof: ProofArtifact,
     public_inputs: Sequence[int],
 ) -> Dict[str, Any]:
-    solidity_public_inputs = [str(int(value) % BN254_PRIME) for value in public_inputs]
+    solidity_public_inputs = [str(int(value) % BN254_SCALAR_FIELD) for value in public_inputs]
     return {
         "vk": vk.to_solidity_dict(),
         "proof": proof.to_solidity_dict(),
@@ -324,6 +327,8 @@ def export_solidity_bundle(
 
 __all__ = [
     "BN254_PRIME",
+    "BN254_BASE_FIELD",
+    "BN254_SCALAR_FIELD",
     "ProofArtifact",
     "VerificationKeyArtifact",
     "evm_curve_compatibility_report",

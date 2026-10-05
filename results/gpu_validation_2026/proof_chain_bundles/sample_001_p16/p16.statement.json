@@ -1,0 +1,13 @@
+{
+  "statement_version": 1,
+  "statement_mode": "pcani-fixed-model",
+  "model_binding": "fixed-quantized-parameters-in-r1cs",
+  "model_tag64": "0xa23f3b65f03d7761",
+  "input_visibility": "public",
+  "public_output_count": 10,
+  "model_tag_public_index": 10,
+  "input_public_start_index": 11,
+  "input_size": 64,
+  "r1cs_constraints": 75,
+  "r1cs_variables": 140
+}

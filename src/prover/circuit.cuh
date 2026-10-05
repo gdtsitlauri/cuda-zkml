@@ -77,6 +77,18 @@ struct R1CS {
         num_constraints++;
     }
 
+    // General rank-1 constraint <a, w> * <b, w> = <c, w> with arbitrary sparse
+    // linear combinations (an empty combination is the constant 0).
+    void add_constraint(const std::vector<std::pair<int, Fr>>& a_terms,
+                        const std::vector<std::pair<int, Fr>>& b_terms,
+                        const std::vector<std::pair<int, Fr>>& c_terms) {
+        int row = num_constraints;
+        for (auto& [var, coeff] : a_terms) A.push_back({row, var, coeff});
+        for (auto& [var, coeff] : b_terms) B.push_back({row, var, coeff});
+        for (auto& [var, coeff] : c_terms) C.push_back({row, var, coeff});
+        num_constraints++;
+    }
+
     // Verify that witness satisfies all constraints
     bool verify_witness(const std::vector<Fr>& witness) const {
         if ((int)witness.size() != num_variables) {
@@ -176,6 +188,48 @@ struct CircuitBuilder {
             y_vars[i] = alloc_var();
         }
         return add_linear_layer_into(x_vars, y_vars, out_size, in_size);
+    }
+
+    // Exact-model binding mode: weights and biases are fixed circuit
+    // coefficients rather than private witness variables.  The Groth16
+    // proving/verification keys are therefore specific to one quantized model.
+    // This is the sound low-overhead binding used by the PCANI research
+    // protocol.  It intentionally does not provide model confidentiality.
+    std::vector<int> add_fixed_linear_layer_into(
+            const std::vector<int>& x_vars,
+            const std::vector<int>& y_vars,
+            const std::vector<Fr>& weights,
+            const std::vector<Fr>& bias,
+            int out_size, int in_size) {
+        if ((int)x_vars.size() != in_size ||
+            (int)y_vars.size() != out_size ||
+            (int)weights.size() != out_size * in_size ||
+            (int)bias.size() != out_size) {
+            return {};
+        }
+
+        for (int i = 0; i < out_size; i++) {
+            std::vector<std::pair<int, Fr>> terms;
+            terms.reserve((size_t)in_size + 1);
+            for (int j = 0; j < in_size; j++) {
+                terms.push_back({x_vars[j], weights[(size_t)i * (size_t)in_size + (size_t)j]});
+            }
+            terms.push_back({0, bias[i]});
+            circuit.add_linear_constraint(terms, {{y_vars[i], Fr::one()}});
+        }
+        return y_vars;
+    }
+
+    std::vector<int> add_fixed_linear_layer(
+            const std::vector<int>& x_vars,
+            const std::vector<Fr>& weights,
+            const std::vector<Fr>& bias,
+            int out_size, int in_size) {
+        std::vector<int> y_vars(out_size);
+        for (int i = 0; i < out_size; i++) {
+            y_vars[i] = alloc_var();
+        }
+        return add_fixed_linear_layer_into(x_vars, y_vars, weights, bias, out_size, in_size);
     }
 
     // Build circuit for polynomial ReLU approximation
@@ -424,6 +478,142 @@ struct CircuitBuilder {
                 sum_terms.push_back({o_b[out], Fr::one()});
                 sum_terms.push_back({x_vars[token * hidden_size + out], Fr::one()});
                 circuit.add_linear_constraint(sum_terms, {{y_var, Fr::one()}});
+            }
+        }
+
+        return out_vars;
+    }
+
+    // Exact-model binding variant of self-attention.  Projection matrices and
+    // biases are fixed circuit coefficients, while activation products remain
+    // witness values constrained by R1CS.  This binds the proof key to the
+    // exact quantized transformer parameters without exposing them as mutable
+    // witness variables.
+    std::vector<int> add_fixed_self_attention_layer(
+            const std::vector<int>& x_vars,
+            int seq_len,
+            int hidden_size,
+            int num_heads,
+            const std::vector<Fr>& q_w,
+            const std::vector<Fr>& q_b,
+            const std::vector<Fr>& k_w,
+            const std::vector<Fr>& k_b,
+            const std::vector<Fr>& v_w,
+            const std::vector<Fr>& v_b,
+            const std::vector<Fr>& o_w,
+            const std::vector<Fr>& o_b) {
+        if (num_heads <= 0 || (hidden_size % num_heads) != 0 ||
+            (int)x_vars.size() != seq_len * hidden_size) {
+            return {};
+        }
+        const size_t matrix_elems = (size_t)hidden_size * (size_t)hidden_size;
+        if (q_w.size() != matrix_elems || k_w.size() != matrix_elems ||
+            v_w.size() != matrix_elems || o_w.size() != matrix_elems ||
+            q_b.size() != (size_t)hidden_size || k_b.size() != (size_t)hidden_size ||
+            v_b.size() != (size_t)hidden_size || o_b.size() != (size_t)hidden_size) {
+            return {};
+        }
+
+        const int head_dim = hidden_size / num_heads;
+        auto add_fixed_projection = [&](const std::vector<Fr>& weights,
+                                        const std::vector<Fr>& bias,
+                                        const std::vector<int>& input_flat) {
+            std::vector<int> out_flat(seq_len * hidden_size);
+            for (int token = 0; token < seq_len; token++) {
+                for (int out = 0; out < hidden_size; out++) {
+                    int y_var = alloc_var();
+                    out_flat[token * hidden_size + out] = y_var;
+                    std::vector<std::pair<int, Fr>> terms;
+                    terms.reserve((size_t)hidden_size + 1);
+                    for (int in = 0; in < hidden_size; in++) {
+                        terms.push_back({
+                            input_flat[token * hidden_size + in],
+                            weights[(size_t)out * (size_t)hidden_size + (size_t)in]
+                        });
+                    }
+                    terms.push_back({0, bias[out]});
+                    circuit.add_linear_constraint(terms, {{y_var, Fr::one()}});
+                }
+            }
+            return out_flat;
+        };
+
+        std::vector<int> q_vars = add_fixed_projection(q_w, q_b, x_vars);
+        std::vector<int> k_vars = add_fixed_projection(k_w, k_b, x_vars);
+        std::vector<int> v_vars = add_fixed_projection(v_w, v_b, x_vars);
+
+        std::vector<int> score_vars(seq_len * num_heads * seq_len);
+        for (int token = 0; token < seq_len; token++) {
+            for (int head = 0; head < num_heads; head++) {
+                for (int key_idx = 0; key_idx < seq_len; key_idx++) {
+                    int score_var = alloc_var();
+                    score_vars[(token * num_heads + head) * seq_len + key_idx] = score_var;
+                    std::vector<std::pair<int, Fr>> score_terms;
+                    for (int d = 0; d < head_dim; d++) {
+                        int idx = head * head_dim + d;
+                        int product_var = alloc_var();
+                        circuit.add_mul_constraint(
+                            q_vars[token * hidden_size + idx], Fr::one(),
+                            k_vars[key_idx * hidden_size + idx], Fr::one(),
+                            product_var, Fr::one());
+                        score_terms.push_back({product_var, Fr::one()});
+                    }
+                    circuit.add_linear_constraint(score_terms, {{score_var, Fr::one()}});
+                }
+            }
+        }
+
+        std::vector<int> attn_probs(seq_len * num_heads * seq_len);
+        for (int token = 0; token < seq_len; token++) {
+            for (int head = 0; head < num_heads; head++) {
+                std::vector<int> row_scores(seq_len);
+                for (int key_idx = 0; key_idx < seq_len; key_idx++) {
+                    row_scores[key_idx] = score_vars[(token * num_heads + head) * seq_len + key_idx];
+                }
+                std::vector<int> row_probs = add_softmax_approx(row_scores, seq_len);
+                for (int key_idx = 0; key_idx < seq_len; key_idx++) {
+                    attn_probs[(token * num_heads + head) * seq_len + key_idx] = row_probs[key_idx];
+                }
+            }
+        }
+
+        std::vector<int> context_vars(seq_len * hidden_size);
+        for (int token = 0; token < seq_len; token++) {
+            for (int head = 0; head < num_heads; head++) {
+                for (int d = 0; d < head_dim; d++) {
+                    int idx = head * head_dim + d;
+                    int context_var = alloc_var();
+                    context_vars[token * hidden_size + idx] = context_var;
+                    std::vector<std::pair<int, Fr>> ctx_terms;
+                    for (int key_idx = 0; key_idx < seq_len; key_idx++) {
+                        int product_var = alloc_var();
+                        circuit.add_mul_constraint(
+                            attn_probs[(token * num_heads + head) * seq_len + key_idx], Fr::one(),
+                            v_vars[key_idx * hidden_size + idx], Fr::one(),
+                            product_var, Fr::one());
+                        ctx_terms.push_back({product_var, Fr::one()});
+                    }
+                    circuit.add_linear_constraint(ctx_terms, {{context_var, Fr::one()}});
+                }
+            }
+        }
+
+        std::vector<int> out_vars(seq_len * hidden_size);
+        for (int token = 0; token < seq_len; token++) {
+            for (int out = 0; out < hidden_size; out++) {
+                int y_var = alloc_var();
+                out_vars[token * hidden_size + out] = y_var;
+                std::vector<std::pair<int, Fr>> terms;
+                terms.reserve((size_t)hidden_size + 2);
+                for (int in = 0; in < hidden_size; in++) {
+                    terms.push_back({
+                        context_vars[token * hidden_size + in],
+                        o_w[(size_t)out * (size_t)hidden_size + (size_t)in]
+                    });
+                }
+                terms.push_back({0, o_b[out]});
+                terms.push_back({x_vars[token * hidden_size + out], Fr::one()});
+                circuit.add_linear_constraint(terms, {{y_var, Fr::one()}});
             }
         }
 

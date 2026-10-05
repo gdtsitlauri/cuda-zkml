@@ -1,0 +1,28 @@
+{
+  "attempts": [
+    {
+      "path_name": "p16",
+      "proof": "p16.proof.bin",
+      "public_inputs": "p16.public.bin",
+      "statement_meta": "p16.statement.json",
+      "vk": "../../artifacts/p16/vk.bin"
+    },
+    {
+      "path_name": "p48",
+      "proof": "p48.proof.bin",
+      "public_inputs": "p48.public.bin",
+      "statement_meta": "p48.statement.json",
+      "vk": "../../artifacts/p48/vk.bin"
+    },
+    {
+      "path_name": "p96",
+      "proof": "p96.proof.bin",
+      "public_inputs": "p96.public.bin",
+      "statement_meta": "p96.statement.json",
+      "vk": "../../artifacts/p96/vk.bin"
+    }
+  ],
+  "chosen_path": "p96",
+  "policy_digest": "e62f5a7408e278520c41eea3135a8e255820bdcdc7ba4be771b4fe23b65ccfe9",
+  "protocol_version": 1
+}

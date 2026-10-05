@@ -1,0 +1,50 @@
+{
+  "algorithm": "PCANI proof-cost-aware routing policy",
+  "evidence": "synthetic_sanity_check_only",
+  "policy": {
+    "calibration_accuracy": 0.9733333333333334,
+    "expected_proof_cost": 0.9364,
+    "full_path_accuracy": 0.9733333333333334,
+    "max_accuracy_drop": 0.005,
+    "paths": [
+      {
+        "model_digest": "",
+        "name": "early",
+        "proof_cost": 0.3,
+        "workload_id": "synthetic-demo"
+      },
+      {
+        "model_digest": "",
+        "name": "mid",
+        "proof_cost": 0.62,
+        "workload_id": "synthetic-demo"
+      },
+      {
+        "model_digest": "",
+        "name": "full",
+        "proof_cost": 1.0,
+        "workload_id": "synthetic-demo"
+      }
+    ],
+    "policy_digest": "93e8a7cc92c2b006f613f4770e5f929434dac152a618b82b79a1f56c626892ee",
+    "thresholds": [
+      0.975,
+      0.99
+    ]
+  },
+  "security_note": "Routing optimization is implemented; a zero-knowledge proof of the routing decision and cross-proof linkage is not yet implemented.",
+  "status": "research-prototype-policy-layer",
+  "test": {
+    "accuracy": 0.9633333333333334,
+    "accuracy_drop": 0.0,
+    "expected_proof_cost": 0.9342666666666666,
+    "full_path_accuracy": 0.9633333333333334,
+    "full_path_cost": 1.0,
+    "proof_cost_savings": 0.06573333333333342,
+    "route_counts": {
+      "early": 26,
+      "full": 270,
+      "mid": 4
+    }
+  }
+}

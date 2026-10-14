@@ -211,7 +211,7 @@ endforeach()
 
 if(ZKML_FAST_DEBUG_LOOP)
     if(ZKML_ULTRA_FAST_COMPILE)
-        # Μην αλλάζεις το CUDA_SEPARABLE_COMPILATION για το test_groth16, κράτα το ON για σωστό linking
+        # Do not change CUDA_SEPARABLE_COMPILATION for test_groth16; keep it ON for correct linking
         target_compile_options(test_groth16 PRIVATE
             $<$<COMPILE_LANGUAGE:CUDA>:-O0>
         )

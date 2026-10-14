@@ -71,7 +71,7 @@ from host (no-GPU) tests of the exact circuits the prover uses; the GPU end-to-e
 
 ```
 CUDA-zkML-PCANI-SingleProof-2026/
-  README.md, README_GR.md, LICENSE (MIT), CITATION.cff, FUTURE_WORK_ROADMAP.md (status + what remains)
+  README.md, LICENSE (MIT), CITATION.cff, FUTURE_WORK_ROADMAP.md (status + what remains)
   SUMMARY_FOR_SUPERVISOR_GR.txt   plain-language summary of the whole study (Greek)
   src/
     field/, curve/, msm/, ntt/    BN254 arithmetic, pairing, Pippenger MSM, NTT (CUDA)

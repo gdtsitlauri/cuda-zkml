@@ -134,5 +134,5 @@ The draft paper was removed; it will be rewritten after the GPU runs.
 
 George David Tsitlauri and Georgios Dimitriou, Department of Informatics and Telecommunications, University of
 Thessaly, Lamia, Greece, 2026.
-Preliminary PhD research, supervised by Assistant Prof. Georgios Dimitriou. MIT License (`LICENSE`); citation
+Preliminary PhD research, supervised by Georgios Dimitriou. MIT License (`LICENSE`); citation
 metadata in `CITATION.cff`.

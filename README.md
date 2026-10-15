@@ -132,5 +132,5 @@ The draft paper was removed; it will be rewritten after the GPU runs.
 
 ## Citation and license
 
-George David Tsitlauri, University of Thessaly, 2026. MIT License (`LICENSE`); citation metadata in
-`CITATION.cff`.
+George David Tsitlauri, University of Thessaly, 2026. Planned doctoral research, supervised by Georgios Dimitriou,
+with whom it is carried out in the same research lab. MIT License (`LICENSE`); citation metadata in `CITATION.cff`.

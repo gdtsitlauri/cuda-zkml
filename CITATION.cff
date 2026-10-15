@@ -5,10 +5,10 @@ type: software
 authors:
   - given-names: "George David"
     family-names: "Tsitlauri"
-    affiliation: "Computer Architecture, Compilers and System Security Laboratory (CACS Lab), Department of Informatics and Telecommunications, University of Thessaly, Lamia, Greece"
+    affiliation: "Department of Informatics and Telecommunications, University of Thessaly, Lamia, Greece"
   - given-names: "Georgios"
     family-names: "Dimitriou"
-    affiliation: "Computer Architecture, Compilers and System Security Laboratory (CACS Lab), Department of Informatics and Telecommunications, University of Thessaly, Lamia, Greece"
+    affiliation: "Department of Informatics and Telecommunications, University of Thessaly, Lamia, Greece"
 date-released: 2026-10-05
 license: MIT
 repository-code: "https://github.com/gdtsitlauri/cuda-zkml"

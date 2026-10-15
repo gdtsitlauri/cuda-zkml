@@ -132,8 +132,7 @@ The draft paper was removed; it will be rewritten after the GPU runs.
 
 ## Citation and license
 
-George David Tsitlauri and Georgios Dimitriou (Assistant Professor, supervisor), Computer Architecture,
-Compilers and System Security Laboratory (CACS Lab), Department of Informatics and Telecommunications,
-University of Thessaly, Lamia, Greece, 2026. Preliminary PhD research, carried out together in the CACS
-Lab under the supervision of Assistant Prof. Georgios Dimitriou, the lab's director. MIT License (`LICENSE`);
-citation metadata in `CITATION.cff`.
+George David Tsitlauri and Georgios Dimitriou, Computer Architecture, Compilers and System Security Laboratory
+(CACS Lab), Department of Informatics and Telecommunications, University of Thessaly, Lamia, Greece, 2026.
+Preliminary PhD research, supervised by Assistant Prof. Georgios Dimitriou. MIT License (`LICENSE`); citation
+metadata in `CITATION.cff`.

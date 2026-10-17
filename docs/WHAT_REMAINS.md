@@ -17,7 +17,7 @@ The core 2026 PCANI research prototype is now implemented and the first NVIDIA T
 - held-out v2 re-analysis using the measured T4 path costs;
 - representative cryptographic route evidence.
 
-## What remains for publication / strong PhD claim
+## What remains for publication / strong novelty claim
 
 Items 1–3 are implemented and only need a GPU run (`scripts/run_gate_f.sh` or
 `notebooks/PCANI_Colab_GateF.ipynb`; details in `docs/GATE_F_RUNBOOK.md`).

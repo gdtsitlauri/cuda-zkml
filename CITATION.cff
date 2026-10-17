@@ -6,9 +6,6 @@ authors:
   - given-names: "George David"
     family-names: "Tsitlauri"
     affiliation: "Department of Informatics and Telecommunications, University of Thessaly, Greece"
-  - given-names: "George"
-    family-names: "Dimitriou"
-    affiliation: "Department of Informatics and Telecommunications, University of Thessaly, Greece"
 date-released: 2026-10-05
 license: MIT
 repository-code: "https://github.com/gdtsitlauri/cuda-zkml"

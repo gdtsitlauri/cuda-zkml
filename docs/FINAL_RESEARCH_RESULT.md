@@ -32,7 +32,7 @@ Using the same measured T4 per-path prover medians and the frozen held-out routi
 
 The current repository supports a hardened CUDA/Groth16 zkML research system and a proof-cost-aware adaptive inference protocol whose first cumulative proof-chain design failed on measured cost, while the single-selected-proof redesign produces a positive expected proof-cost/accuracy trade-off on the completed T4 Digits experiment.
 
-## Still required before a strong publication / PhD novelty claim
+## Still required before a strong publication / novelty claim
 
 - replication on another GPU;
 - at least one larger benchmark/model family;

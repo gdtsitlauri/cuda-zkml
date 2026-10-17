@@ -1,6 +1,6 @@
-# CUDA-zkML / PCANI — Roadmap for future work (PhD)
+# CUDA-zkML / PCANI — Roadmap for future work
 
-Status: 2026-10-03. The project is frozen here and continues in the doctorate.
+Status: 2026-10-03. The project is frozen here; the work below is future work.
 This file states **what remains, in which order, where in the code and how it is checked**.
 
 ## Update 2026-10-04: Phase 1 and Phase 2 are implemented; only runs remain
@@ -78,7 +78,7 @@ come out increasing, raise `REPEATS`.
 
 ---
 
-## Phase 2 — Doctoral extensions
+## Phase 2 — Extensions
 
 ### 2.1 Real ReLU with range proofs (the main technical gap)
 - **Today:** activation `h = z² + 64z + 64` and random, untrained hidden weights
@@ -120,7 +120,7 @@ come out increasing, raise `REPEATS`.
   multiplies δ by a random s and updates the L/H queries, with a consistency proof).
   Files: `src/prover/groth16.cu` (ProvingKey), new CLI `zkml-ceremony`.
 - **Large alternative:** a universal (PLONK/KZG) or transparent (STARK/Halo2) setup →
-  essentially a new prover; only if it becomes the central topic of the PhD.
+  essentially a new prover; only if it becomes the central topic of later work.
 
 ### 2.6 Scale
 - Batching many samples in one proof; larger models (a small ResNet, a small

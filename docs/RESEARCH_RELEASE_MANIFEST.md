@@ -33,7 +33,7 @@ The protocol-v2 single-proof redesign yields 1602.51 ms expected selected-proof 
 - no model hiding;
 - no universal zkML speedup claim;
 - no claim that v2 proves the selected route is globally cheapest;
-- no established PhD novelty claim before systematic literature/patent review.
+- no established novelty claim before systematic literature/patent review.
 
 ## Reproduction
 
